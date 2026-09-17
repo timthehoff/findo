@@ -1,0 +1,30 @@
+# Dev-only stack: a throwaway Samba server seeded with sample files, plus
+# the findo backend pointed at it. Lets the HTTP API be exercised end-to-end
+# without access to the real NAS. Not for production use.
+services:
+  samba:
+    image: dperson/samba
+    command: -p -u "testuser;testpass" -s "testshare;/share;yes;no;yes;testuser"
+    ports:
+      - "1445:445"
+    volumes:
+      - ./testdata/seed:/share
+
+  findo:
+    build: .
+    depends_on:
+      - samba
+    ports:
+      - "8080:8080"
+    environment:
+      SMB_HOST: samba
+      SMB_SHARE: testshare
+      SMB_USER: testuser
+      SMB_PASS: testpass
+      HTTP_ADDR: ":8080"
+      DB_PATH: "/data/findo.db"
+    volumes:
+      - findo-dev-db:/data
+
+volumes:
+  findo-dev-db:

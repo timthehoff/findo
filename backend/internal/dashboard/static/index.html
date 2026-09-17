@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Findo — Index Dashboard</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: -apple-system, system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; background: #fff; }
+  @media (prefers-color-scheme: dark) {
+    body { color: #e8e8e8; background: #1a1a1a; }
+    .card { border-color: #444; }
+    .card .label { color: #999; }
+    th, td { border-color: #333; }
+  }
+  h1 { font-size: 1.3rem; }
+  .cards { display: flex; gap: 1rem; margin: 1rem 0 2rem; flex-wrap: wrap; }
+  .card { border: 1px solid #ddd; border-radius: 8px; padding: 0.75rem 1rem; min-width: 140px; }
+  .card .label { font-size: 0.75rem; color: #666; text-transform: uppercase; }
+  .card .value { font-size: 1.4rem; font-weight: 600; }
+  .ok { color: #1a7f37; }
+  .bad { color: #cf222e; }
+  form { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+  input[type=text] { flex: 1; padding: 0.4rem 0.6rem; font-size: 1rem; }
+  button { padding: 0.4rem 0.9rem; font-size: 1rem; cursor: pointer; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  th, td { text-align: left; padding: 0.3rem 0.5rem; border-bottom: 1px solid #eee; }
+  #err { color: #cf222e; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+  <h1>Findo — Index Dashboard</h1>
+
+  <div class="cards" id="cards">loading…</div>
+  <button id="reindexBtn">Trigger reindex</button>
+
+  <h2>Browse / Search</h2>
+  <form id="queryForm">
+    <input type="text" id="q" placeholder="path=/ or search term">
+    <select id="mode">
+      <option value="files">List path</option>
+      <option value="search">Search</option>
+    </select>
+    <button type="submit">Go</button>
+  </form>
+  <div id="err"></div>
+  <table id="results"><thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Modified</th></tr></thead><tbody></tbody></table>
+
+<script>
+async function refresh() {
+  const cards = document.getElementById('cards');
+  try {
+    const [health, stats] = await Promise.all([
+      fetch('/health').then(r => r.json()),
+      fetch('/stats').then(r => r.json()),
+    ]);
+    const healthClass = health.status === 'ok' ? 'ok' : 'bad';
+    cards.innerHTML = `
+      <div class="card"><div class="label">Health</div><div class="value ${healthClass}">${health.status}</div></div>
+      <div class="card"><div class="label">Files</div><div class="value">${stats.fileCount ?? 0}</div></div>
+      <div class="card"><div class="label">Dirs</div><div class="value">${stats.dirCount ?? 0}</div></div>
+      <div class="card"><div class="label">Last crawl</div><div class="value">${stats.lastCrawlAt ?? '—'}</div></div>
+      <div class="card"><div class="label">Crawling</div><div class="value">${stats.crawling ? 'yes' : 'no'}</div></div>
+    `;
+  } catch (e) {
+    cards.textContent = 'failed to load health/stats: ' + e;
+  }
+}
+
+document.getElementById('reindexBtn').addEventListener('click', async () => {
+  await fetch('/reindex', { method: 'POST' });
+  refresh();
+});
+
+document.getElementById('queryForm').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const q = document.getElementById('q').value;
+  const mode = document.getElementById('mode').value;
+  const errEl = document.getElementById('err');
+  const tbody = document.querySelector('#results tbody');
+  errEl.textContent = '';
+  tbody.innerHTML = '';
+
+  const url = mode === 'search'
+    ? '/search?q=' + encodeURIComponent(q)
+    : '/files?path=' + encodeURIComponent(q);
+
+  try {
+    const res = await fetch(url);
+    const body = await res.json();
+    if (!res.ok) {
+      errEl.textContent = body.error || res.statusText;
+      return;
+    }
+    for (const f of body.entries || []) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${f.path}</td><td>${f.isDir ? 'dir' : f.ext}</td><td>${f.isDir ? '' : f.size}</td><td>${new Date(f.modTime * 1000).toLocaleString()}</td>`;
+      tbody.appendChild(tr);
+    }
+  } catch (e) {
+    errEl.textContent = String(e);
+  }
+});
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>
