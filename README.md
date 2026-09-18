@@ -1,8 +1,9 @@
 # Findo
 
-Findo makes files on a UniFi NAS (UNAS / UNAS Pro) searchable via Siri/Spotlight
-on iOS and editable in native apps (Numbers, Word, etc.), without relying on
-the Files app's limited SMB support.
+Findo makes files on any SMB-accessible NAS (developed against a UniFi
+UNAS/UNAS Pro, but not limited to it) searchable via Siri/Spotlight on iOS
+and editable in native apps (Numbers, Word, etc.), without relying on the
+Files app's limited SMB support.
 
 ## Why this exists
 
