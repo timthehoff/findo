@@ -58,14 +58,27 @@ Requires Go 1.25+ (see `backend/go.mod`).
 ```sh
 cd backend
 cp .env.example .env   # fill in real SMB_HOST/SMB_SHARE/SMB_USER/SMB_PASS
-go build ./...
-go run ./cmd/findo-server
+make run
 ```
 
 The server reads config from environment variables, optionally via a local
 `.env` file (see `backend/internal/config/config.go`). Required vars:
 `SMB_HOST`, `SMB_SHARE`, `SMB_USER`, `SMB_PASS`. Optional: `HTTP_ADDR`
 (default `:8080`), `DB_PATH` (default `findo.db`).
+
+### Makefile targets
+
+All run from `backend/`:
+
+| Target | What it does |
+| --- | --- |
+| `make build` (default) | `go build` the server binary |
+| `make check` | `gofmt -l` + `go vet` |
+| `make fix` | `gofmt -w` to auto-format |
+| `make test` | `go test ./...` |
+| `make run` | `go run ./cmd/findo-server` |
+
+CI runs `make check test build` on every push/PR.
 
 ### Dev stack without a real NAS
 
