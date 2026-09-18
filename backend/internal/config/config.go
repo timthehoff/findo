@@ -10,10 +10,10 @@ import (
 )
 
 type Config struct {
-	SMBHost string
+	SMBHost  string
 	SMBShare string
-	SMBUser string
-	SMBPass string
+	SMBUser  string
+	SMBPass  string
 	HTTPAddr string
 	DBPath   string
 }

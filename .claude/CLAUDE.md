@@ -85,11 +85,18 @@ end-to-end testing without the real NAS, use `backend/docker-compose.dev.yml`
   rows, reinsert everything found by the walk. Simple and correct at
   home-NAS scale; don't add incremental add/delete/rename reconciliation
   unless asked.
-- Build: `go build ./...` from `backend/`. Run: `go run ./cmd/findo-server`
-  (reads `.env` in the working directory). No test suite exists yet — if you
-  add one, standard `go test ./...` from `backend/`.
+- Use the `backend/Makefile` rather than raw `go` commands: `make build`
+  (default), `make check` (`gofmt -l` + `go vet`), `make fix` (`gofmt -w`),
+  `make test` (`go test ./...`), `make run` (`go run ./cmd/findo-server`,
+  reads `.env` in the working directory). CI runs `make check test build`.
 - Keep the dashboard (`internal/dashboard/static/index.html`) as plain
   HTML/CSS/JS calling the JSON API via `fetch` — no build tooling for it.
+
+## Workflow
+
+After making changes to `backend/`, run `make check` and `make test` from
+`backend/` before considering the change done. Run `make fix` first if
+`check` fails on formatting; fix the code if it fails `go vet`.
 
 ## General conventions
 
