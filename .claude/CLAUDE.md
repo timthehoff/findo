@@ -81,10 +81,13 @@ end-to-end testing without the real NAS, use `backend/docker-compose.dev.yml`
 - SQLite is opened with `SetMaxOpenConns(1)` since the crawler and HTTP
   handlers share one `*sql.DB` — don't raise this without also handling
   concurrent-writer locking (WAL mode, busy_timeout, etc.).
-- Crawl strategy is currently full-replace (`Index.ReplaceAll`): delete all
-  rows, reinsert everything found by the walk. Simple and correct at
-  home-NAS scale; don't add incremental add/delete/rename reconciliation
-  unless asked.
+- Crawl strategy is mark-and-sweep reconciliation (`Index.Reconcile`, built
+  on `UpsertBatch`/`Sweep`): each crawl still walks the whole tree, but rows
+  are upserted (not blindly reinserted) and stamped with the crawl's
+  `last_seen_run`; a final sweep deletes rows not stamped with the current
+  run, i.e. anything no longer on the NAS. `Index.Upsert`/`Index.Delete`
+  give the same primitives for single-file updates outside a full crawl
+  (e.g. a live change-notify event).
 - Use the `backend/Makefile` rather than raw `go` commands: `make build`
   (default), `make check` (`gofmt -l` + `go vet`), `make fix` (`gofmt -w`),
   `make test` (`go test ./...`), `make run` (`go run ./cmd/findo-server`,
@@ -96,7 +99,8 @@ end-to-end testing without the real NAS, use `backend/docker-compose.dev.yml`
 
 After making changes to `backend/`, run `make check` and `make test` from
 `backend/` before considering the change done. Run `make fix` first if
-`check` fails on formatting; fix the code if it fails `go vet`.
+`check` fails on formatting; fix the code if it fails `go vet`. New logic
+needs test coverage alongside it, not bolted on later.
 
 ## General conventions
 

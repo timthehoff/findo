@@ -58,13 +58,14 @@ func (idx *Index) Close() error {
 func (idx *Index) migrate() error {
 	_, err := idx.db.Exec(`
 		CREATE TABLE IF NOT EXISTS files (
-			path     TEXT PRIMARY KEY,
-			name     TEXT NOT NULL,
-			dir      TEXT NOT NULL,
-			ext      TEXT NOT NULL,
-			is_dir   INTEGER NOT NULL,
-			size     INTEGER NOT NULL,
-			mod_time INTEGER NOT NULL
+			path          TEXT PRIMARY KEY,
+			name          TEXT NOT NULL,
+			dir           TEXT NOT NULL,
+			ext           TEXT NOT NULL,
+			is_dir        INTEGER NOT NULL,
+			size          INTEGER NOT NULL,
+			mod_time      INTEGER NOT NULL,
+			last_seen_run INTEGER NOT NULL DEFAULT 0
 		);
 		CREATE INDEX IF NOT EXISTS idx_files_dir ON files(dir);
 		CREATE INDEX IF NOT EXISTS idx_files_name ON files(name);
@@ -79,22 +80,29 @@ func (idx *Index) migrate() error {
 	return err
 }
 
-// ReplaceAll atomically replaces the entire file table with the given
-// entries — simplest correct approach for a full re-crawl at home-NAS scale.
-func (idx *Index) ReplaceAll(files []File) error {
+// UpsertBatch inserts or updates every given file in one transaction,
+// stamping each row with runID so a later Sweep(runID) can tell which rows
+// weren't seen in this crawl. Callers with a large crawl to index should
+// call this in chunks as entries are discovered rather than buffering the
+// whole tree in memory first.
+func (idx *Index) UpsertBatch(files []File, runID int64) error {
 	tx, err := idx.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.Exec(`DELETE FROM files`); err != nil {
-		return err
-	}
-
 	stmt, err := tx.Prepare(`
-		INSERT INTO files (path, name, dir, ext, is_dir, size, mod_time)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO files (path, name, dir, ext, is_dir, size, mod_time, last_seen_run)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(path) DO UPDATE SET
+			name = excluded.name,
+			dir = excluded.dir,
+			ext = excluded.ext,
+			is_dir = excluded.is_dir,
+			size = excluded.size,
+			mod_time = excluded.mod_time,
+			last_seen_run = excluded.last_seen_run
 	`)
 	if err != nil {
 		return err
@@ -106,12 +114,44 @@ func (idx *Index) ReplaceAll(files []File) error {
 		if f.IsDir {
 			isDir = 1
 		}
-		if _, err := stmt.Exec(f.Path, f.Name, f.Dir, f.Ext, isDir, f.Size, f.ModTime); err != nil {
-			return fmt.Errorf("insert %q: %w", f.Path, err)
+		if _, err := stmt.Exec(f.Path, f.Name, f.Dir, f.Ext, isDir, f.Size, f.ModTime, runID); err != nil {
+			return fmt.Errorf("upsert %q: %w", f.Path, err)
 		}
 	}
 
 	return tx.Commit()
+}
+
+// Upsert inserts or updates a single file, e.g. from a live change-notify
+// event rather than a crawl run.
+func (idx *Index) Upsert(f File, runID int64) error {
+	return idx.UpsertBatch([]File{f}, runID)
+}
+
+// Sweep deletes every file not stamped with runID — the mark-and-sweep half
+// of a reconciling crawl: anything not seen during run runID no longer
+// exists on the NAS (or wasn't reachable this run) and is dropped from the
+// index.
+func (idx *Index) Sweep(runID int64) error {
+	_, err := idx.db.Exec(`DELETE FROM files WHERE last_seen_run != ?`, runID)
+	return err
+}
+
+// Delete removes a single file by path, e.g. from a live change-notify
+// event.
+func (idx *Index) Delete(p string) error {
+	_, err := idx.db.Exec(`DELETE FROM files WHERE path = ?`, strings.Trim(p, "/"))
+	return err
+}
+
+// Reconcile upserts every file in files, then sweeps anything not seen in
+// this batch — the whole-batch convenience path for callers (today, a full
+// crawl) that already have the complete file list in memory.
+func (idx *Index) Reconcile(files []File, runID int64) error {
+	if err := idx.UpsertBatch(files, runID); err != nil {
+		return err
+	}
+	return idx.Sweep(runID)
 }
 
 // StartCrawlRun records the start of a crawl and returns its id.

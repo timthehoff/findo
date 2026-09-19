@@ -40,7 +40,9 @@ other environment specifics, see `.env` (not committed — copy from
 Only **Milestone 1** of the backend is built:
 
 - Connects to a single SMB share and recursively crawls it into a SQLite
-  index (full replace on each crawl — no incremental diffing yet).
+  index. Each crawl reconciles the index against what it finds (upserts
+  changed/new files, sweeps away anything no longer present) rather than
+  wiping and rebuilding from scratch.
 - HTTP API: `GET /files` (list by dir), `GET /search` (name search),
   `GET /files/content` (Range-aware streamed read via `http.ServeContent`),
   `GET /health`, `GET /stats`, `POST /reindex`.

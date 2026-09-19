@@ -7,9 +7,11 @@ import (
 	"github.com/thoff/findo/backend/internal/smbclient"
 )
 
-// Crawl walks the SMB share and replaces the entire index with what it
-// finds. Simple full-replace strategy: correct and cheap enough at
-// home-NAS scale, avoids reconciling adds/deletes/renames for milestone 1.
+// Crawl walks the SMB share and reconciles the index against what it finds:
+// every visited file is upserted, then anything not visited this run (a
+// deletion or rename on the NAS since the last crawl) is swept away. This
+// still walks the whole tree each run — the incremental part is the SQLite
+// write pattern, not directory discovery.
 func (s *Server) Crawl() error {
 	runID, err := s.idx.StartCrawlRun()
 	if err != nil {
@@ -32,7 +34,7 @@ func (s *Server) Crawl() error {
 	})
 
 	if walkErr == nil {
-		walkErr = s.idx.ReplaceAll(files)
+		walkErr = s.idx.Reconcile(files, runID)
 	}
 
 	if err := s.idx.FinishCrawlRun(runID, walkErr); err != nil {
