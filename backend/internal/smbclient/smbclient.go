@@ -4,6 +4,7 @@
 package smbclient
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -12,6 +13,13 @@ import (
 
 	"github.com/hirochachacha/go-smb2"
 )
+
+// walkConcurrency bounds how many directory listings run at once during a
+// Walk. SMB2 multiplexes many outstanding requests over one connection
+// (the negotiated default credit balance is 128), so this doesn't need its
+// own connection pool — just a bounded goroutine pool sharing the one
+// long-lived session.
+const walkConcurrency = 16
 
 // Client holds a single reused SMB session + mounted share. SMB session
 // setup is expensive, so callers should keep one Client alive for the life
@@ -115,47 +123,141 @@ type Entry struct {
 }
 
 // Walk recursively lists every entry under root ("" or "." for share root),
-// invoking fn for each file and directory encountered.
-func (c *Client) Walk(root string, fn func(Entry) error) error {
+// calling fn for each file and directory found. Directory listings fan out
+// across a bounded pool of goroutines sharing the one SMB session (see
+// walkConcurrency), rather than listing one directory at a time.
+//
+// A directory that fails to list doesn't abort the walk — this is
+// best-effort, since a permission error or a transient failure on one
+// subtree shouldn't prevent indexing everything else reachable. Every such
+// error is recorded and returned together (via errors.Join) once the walk
+// finishes; a nil return means every directory was listed cleanly.
+func (c *Client) Walk(root string, fn func(Entry)) error {
 	c.mu.Lock()
 	fs := c.fs
 	c.mu.Unlock()
 	if fs == nil {
 		return fmt.Errorf("not connected")
 	}
-	return c.walk(fs, toSMBPath(root), fn)
+	return errors.Join(walk(toSMBPath(root), fs.ReadDir, fn)...)
 }
 
-func (c *Client) walk(fs *smb2.Share, dir string, fn func(Entry) error) error {
-	infos, err := fs.ReadDir(dir)
-	if err != nil {
-		return fmt.Errorf("readdir %q: %w", dir, err)
-	}
+// walk drives the actual traversal against a readDir function, kept
+// separate from Client.Walk so it can be exercised with a fake directory
+// tree in tests without a real SMB session.
+func walk(root string, readDir func(dir string) ([]os.FileInfo, error), fn func(Entry)) []error {
+	q := newDirQueue()
+	q.push(root)
 
-	for _, info := range infos {
-		name := info.Name()
-		smbPath := name
-		if dir != "" && dir != "." {
-			smbPath = dir + `\` + name
-		}
+	var mu sync.Mutex
+	var errs []error
 
-		entry := Entry{
-			Path:    toSlashPath(smbPath),
-			Name:    name,
-			IsDir:   info.IsDir(),
-			Size:    info.Size(),
-			ModTime: info.ModTime().Unix(),
-		}
-		if err := fn(entry); err != nil {
-			return err
-		}
-		if entry.IsDir {
-			if err := c.walk(fs, smbPath, fn); err != nil {
-				return err
+	var workers sync.WaitGroup
+	workers.Add(walkConcurrency)
+	for i := 0; i < walkConcurrency; i++ {
+		go func() {
+			defer workers.Done()
+			for {
+				dir, ok := q.pop()
+				if !ok {
+					return
+				}
+
+				infos, err := readDir(dir)
+				if err != nil {
+					mu.Lock()
+					errs = append(errs, fmt.Errorf("readdir %q: %w", dir, err))
+					mu.Unlock()
+					q.done()
+					continue
+				}
+
+				for _, info := range infos {
+					name := info.Name()
+					smbPath := name
+					if dir != "" && dir != "." {
+						smbPath = dir + `\` + name
+					}
+
+					entry := Entry{
+						Path:    toSlashPath(smbPath),
+						Name:    name,
+						IsDir:   info.IsDir(),
+						Size:    info.Size(),
+						ModTime: info.ModTime().Unix(),
+					}
+					fn(entry)
+					if entry.IsDir {
+						q.push(smbPath)
+					}
+				}
+				q.done()
 			}
-		}
+		}()
 	}
-	return nil
+	workers.Wait()
+
+	return errs
+}
+
+// dirQueue is an unbounded queue of pending directory paths for the walk
+// worker pool, tracking in-flight work so pop() can tell a caller "nothing
+// left to do" apart from "nothing available right now". A plain buffered
+// channel doesn't work here: workers both consume and produce (a listed
+// directory's subdirectories go back on the queue), so a bounded channel
+// can deadlock if every worker is blocked trying to push new work while
+// none are left to drain it.
+type dirQueue struct {
+	mu      sync.Mutex
+	cond    *sync.Cond
+	items   []string
+	pending int
+	closed  bool
+}
+
+func newDirQueue() *dirQueue {
+	q := &dirQueue{}
+	q.cond = sync.NewCond(&q.mu)
+	return q
+}
+
+// push adds a directory to the queue, counting it as pending work.
+func (q *dirQueue) push(dir string) {
+	q.mu.Lock()
+	q.pending++
+	q.items = append(q.items, dir)
+	q.mu.Unlock()
+	q.cond.Broadcast()
+}
+
+// pop blocks until a directory is available, returning ok=false once the
+// queue is fully drained: no items queued and nothing still being
+// processed that could queue more.
+func (q *dirQueue) pop() (string, bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for len(q.items) == 0 && !q.closed {
+		q.cond.Wait()
+	}
+	if len(q.items) == 0 {
+		return "", false
+	}
+	item := q.items[len(q.items)-1]
+	q.items = q.items[:len(q.items)-1]
+	return item, true
+}
+
+// done marks one previously popped directory as fully handled, including
+// any subdirectories it queued. Once nothing is pending anywhere, the
+// queue closes and every blocked pop() wakes up and returns.
+func (q *dirQueue) done() {
+	q.mu.Lock()
+	q.pending--
+	if q.pending == 0 {
+		q.closed = true
+		q.cond.Broadcast()
+	}
+	q.mu.Unlock()
 }
 
 // Open opens a file for reading, given a share-relative slash path. The

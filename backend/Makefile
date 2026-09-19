@@ -19,7 +19,7 @@ fix:
 	gofmt -w .
 
 test:
-	go test ./...
+	go test -race ./...
 
 run:
 	go run $(PKG)
