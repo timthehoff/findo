@@ -21,4 +21,4 @@ require (
 	modernc.org/memory v1.12.1 // indirect
 )
 
-replace github.com/hirochachacha/go-smb2 => github.com/timthehoff/go-smb2 v0.0.0-20260920193604-368dd6f10a52
+replace github.com/hirochachacha/go-smb2 => github.com/timthehoff/go-smb2 v0.0.0-20260920194049-d65dc3325691
