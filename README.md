@@ -40,9 +40,11 @@ other environment specifics, see `.env` (not committed — copy from
 Only **Milestone 1** of the backend is built:
 
 - Connects to a single SMB share and recursively crawls it into a SQLite
-  index. Each crawl reconciles the index against what it finds (upserts
-  changed/new files, sweeps away anything no longer present) rather than
-  wiping and rebuilding from scratch.
+  index, listing directories concurrently. Each crawl reconciles the index
+  against what it finds (upserts changed/new files, sweeps away anything no
+  longer present) rather than wiping and rebuilding from scratch, and is
+  best-effort — a directory that fails to list is recorded and skipped
+  rather than aborting the whole crawl.
 - HTTP API: `GET /files` (list by dir), `GET /search` (name search),
   `GET /files/content` (Range-aware streamed read via `http.ServeContent`),
   `GET /health`, `GET /stats`, `POST /reindex`.
@@ -77,7 +79,7 @@ All run from `backend/`:
 | `make build` (default) | `go build` the server binary |
 | `make check` | `gofmt -l` + `go vet` |
 | `make fix` | `gofmt -w` to auto-format |
-| `make test` | `go test ./...` |
+| `make test` | `go test -race ./...` |
 | `make run` | `go run ./cmd/findo-server` |
 
 CI runs `make check test build` on every push/PR.

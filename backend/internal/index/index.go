@@ -122,6 +122,43 @@ func (idx *Index) UpsertBatch(files []File, runID int64) error {
 	return tx.Commit()
 }
 
+// StreamUpsert reads files from entries until the channel is closed,
+// upserting them in batches of up to batchSize via UpsertBatch rather than
+// buffering the whole crawl in memory first. Returns the total number of
+// files written and the first batch-write error encountered, if any — it
+// keeps draining entries after a write error rather than stopping, since a
+// producer that's still sending on the channel would otherwise block
+// forever.
+func (idx *Index) StreamUpsert(entries <-chan File, runID int64, batchSize int) (int, error) {
+	var written int
+	var firstErr error
+	batch := make([]File, 0, batchSize)
+
+	flush := func() {
+		if len(batch) == 0 {
+			return
+		}
+		if err := idx.UpsertBatch(batch, runID); err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+		} else {
+			written += len(batch)
+		}
+		batch = batch[:0]
+	}
+
+	for f := range entries {
+		batch = append(batch, f)
+		if len(batch) >= batchSize {
+			flush()
+		}
+	}
+	flush()
+
+	return written, firstErr
+}
+
 // Upsert inserts or updates a single file, e.g. from a live change-notify
 // event rather than a crawl run.
 func (idx *Index) Upsert(f File, runID int64) error {

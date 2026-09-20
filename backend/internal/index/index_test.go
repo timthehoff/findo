@@ -1,6 +1,7 @@
 package index
 
 import (
+	"fmt"
 	"path/filepath"
 	"testing"
 )
@@ -145,5 +146,57 @@ func TestUpsertAndDeleteSingleFile(t *testing.T) {
 	}
 	if _, ok, err := idx.Stat("note.md"); err != nil || ok {
 		t.Fatalf("note.md should be gone after Delete: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestStreamUpsertBatches(t *testing.T) {
+	idx := openTest(t)
+	run := mustRun(t, idx)
+
+	entries := make(chan File, 10)
+	for i := 0; i < 5; i++ {
+		p := fmt.Sprintf("f%d.txt", i)
+		entries <- File{Path: p, Name: p}
+	}
+	close(entries)
+
+	// batchSize=2 with 5 entries forces multiple UpsertBatch calls plus a
+	// final partial flush — exercises the batching boundary, not just the
+	// single-batch case.
+	written, err := idx.StreamUpsert(entries, run, 2)
+	if err != nil {
+		t.Fatalf("StreamUpsert: %v", err)
+	}
+	if written != 5 {
+		t.Fatalf("expected 5 written, got %d", written)
+	}
+
+	all, err := idx.Search("f", 10)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(all) != 5 {
+		t.Fatalf("expected 5 rows indexed, got %d", len(all))
+	}
+}
+
+func TestStreamUpsertKeepsDrainingAfterWriteError(t *testing.T) {
+	idx := openTest(t)
+	run := mustRun(t, idx)
+
+	entries := make(chan File, 10)
+	for i := 0; i < 4; i++ {
+		p := fmt.Sprintf("g%d.txt", i)
+		entries <- File{Path: p, Name: p}
+	}
+	close(entries)
+	idx.Close() // force every subsequent UpsertBatch call to fail
+
+	written, err := idx.StreamUpsert(entries, run, 2)
+	if err == nil {
+		t.Fatalf("expected an error once the database is closed")
+	}
+	if written != 0 {
+		t.Fatalf("expected 0 written once every batch fails, got %d", written)
 	}
 }

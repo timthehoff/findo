@@ -80,18 +80,31 @@ end-to-end testing without the real NAS, use `backend/docker-compose.dev.yml`
   framework).
 - SQLite is opened with `SetMaxOpenConns(1)` since the crawler and HTTP
   handlers share one `*sql.DB` — don't raise this without also handling
-  concurrent-writer locking (WAL mode, busy_timeout, etc.).
-- Crawl strategy is mark-and-sweep reconciliation (`Index.Reconcile`, built
-  on `UpsertBatch`/`Sweep`): each crawl still walks the whole tree, but rows
-  are upserted (not blindly reinserted) and stamped with the crawl's
-  `last_seen_run`; a final sweep deletes rows not stamped with the current
-  run, i.e. anything no longer on the NAS. `Index.Upsert`/`Index.Delete`
-  give the same primitives for single-file updates outside a full crawl
-  (e.g. a live change-notify event).
+  concurrent-writer locking (WAL mode, busy_timeout, etc.). Only one
+  goroutine (`Index.StreamUpsert`'s consumer, in `Crawl`) ever writes during
+  a crawl, so this doesn't need its own locking on top.
+- Crawl strategy is mark-and-sweep reconciliation: rows are upserted (not
+  blindly reinserted) and stamped with the crawl's `last_seen_run`; a final
+  sweep deletes rows not stamped with the current run, i.e. anything no
+  longer on the NAS. `Index.Upsert`/`Index.Delete` give the same primitives
+  for single-file updates outside a full crawl (e.g. a live change-notify
+  event). `Index.Reconcile` is the whole-batch convenience form (upsert all
+  + sweep) for callers that already have the complete file list in memory;
+  `Crawl` itself uses the lower-level `Index.StreamUpsert` so it never
+  buffers the whole tree.
+- `smbclient.Client.Walk` lists directories concurrently (a bounded worker
+  pool sharing the one SMB session — SMB2 multiplexes many outstanding
+  requests over one connection, so this doesn't need multiple
+  sessions/connections). It's best-effort: a directory that fails to list
+  is recorded and skipped rather than aborting the walk. `Crawl` skips the
+  sweep step entirely if any directory failed to list, since a sweep can't
+  tell a genuine deletion from a subtree it simply couldn't observe that
+  run — better to leave stale rows in place than risk deleting real files.
 - Use the `backend/Makefile` rather than raw `go` commands: `make build`
   (default), `make check` (`gofmt -l` + `go vet`), `make fix` (`gofmt -w`),
-  `make test` (`go test ./...`), `make run` (`go run ./cmd/findo-server`,
-  reads `.env` in the working directory). CI runs `make check test build`.
+  `make test` (`go test -race ./...`), `make run` (`go run
+  ./cmd/findo-server`, reads `.env` in the working directory). CI runs
+  `make check test build`.
 - Keep the dashboard (`internal/dashboard/static/index.html`) as plain
   HTML/CSS/JS calling the JSON API via `fetch` — no build tooling for it.
 
