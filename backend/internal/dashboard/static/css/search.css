@@ -1,0 +1,37 @@
+.search-bar { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
+.search-bar select { padding: 0.4rem 0.6rem; font-size: 1rem; }
+.search-bar input[type=search] { flex: 1; }
+
+.breadcrumbs { font-size: 0.85rem; margin-bottom: 0.75rem; color: #666; min-height: 1.2em; }
+.breadcrumbs a { color: inherit; }
+.breadcrumbs .sep { color: #ccc; padding: 0 0.15rem; }
+@media (prefers-color-scheme: dark) {
+  .breadcrumbs { color: #999; }
+  .breadcrumbs .sep { color: #555; }
+}
+
+mark { background: #fff3a3; color: inherit; padding: 0 1px; border-radius: 2px; }
+@media (prefers-color-scheme: dark) { mark { background: #6b5c00; } }
+
+.badge.type-dir  { background: #ddeeff; color: #0b4a8f; }
+.badge.type-pdf  { background: #ffe1d6; color: #8f350b; }
+.badge.type-doc  { background: #dbeaff; color: #0b3d8f; }
+.badge.type-xls  { background: #d8f5e0; color: #0b6b2e; }
+.badge.type-ppt  { background: #ffe4ec; color: #8f0b4a; }
+.badge.type-img  { background: #f0e3ff; color: #520b8f; }
+.badge.type-vid  { background: #ffe9d6; color: #8f5c0b; }
+.badge.type-zip  { background: #eeeeee; color: #444444; }
+.badge.type-txt  { background: #eeeef8; color: #333366; }
+.badge.type-file { background: #eeeeee; color: #555555; }
+@media (prefers-color-scheme: dark) {
+  .badge.type-dir  { background: #14314f; color: #8fc1ff; }
+  .badge.type-pdf  { background: #4f2313; color: #ffb59b; }
+  .badge.type-doc  { background: #132a4f; color: #9cc4ff; }
+  .badge.type-xls  { background: #123f22; color: #8fe0ac; }
+  .badge.type-ppt  { background: #4f1330; color: #ff9dc4; }
+  .badge.type-img  { background: #33134f; color: #d3aaff; }
+  .badge.type-vid  { background: #4f3313; color: #ffcb9c; }
+  .badge.type-zip  { background: #333333; color: #cccccc; }
+  .badge.type-txt  { background: #23233d; color: #b3b3e0; }
+  .badge.type-file { background: #333333; color: #cccccc; }
+}

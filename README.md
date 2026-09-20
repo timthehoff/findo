@@ -69,8 +69,9 @@ Only **Milestone 1** of the backend is built:
   `GET /search` (name search, optionally scoped to `?volume=`),
   `GET /files/content` (Range-aware streamed read via `http.ServeContent`,
   `?volume=`), `GET /health`, `GET /stats`.
-- A minimal built-in dashboard (`GET /`) for configuring volumes and poking
-  the index by hand.
+- A minimal built-in dashboard: `GET /` for configuring volumes and crawl/
+  watch monitoring, `GET /search.html` for live search and breadcrumb
+  directory browsing.
 
 Not yet built: file write/save-back, conflict detection (version/mtime
 tracking beyond what's indexed), the iOS app in its entirety (File Provider
@@ -137,6 +138,6 @@ backend/
   internal/smbclient/     # SMB2 session, walk, open, change-notify watch
   internal/index/         # SQLite-backed file metadata index + volume config
   internal/httpapi/       # HTTP routes, handlers, per-volume crawl orchestration
-  internal/dashboard/     # embedded static HTML dashboard
+  internal/dashboard/     # embedded static multi-page dashboard (html/css/js)
   testdata/seed/          # sample files for the dev Samba container
 ```

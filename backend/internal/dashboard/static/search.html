@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Findo — Search</title>
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/search.css">
+</head>
+<body>
+  <nav class="topnav">
+    <span class="brand">🐾 Findo</span>
+    <a href="/">Dashboard</a>
+    <a href="/search.html" class="active">Search</a>
+  </nav>
+
+  <h1>Search &amp; Browse</h1>
+  <div class="search-bar">
+    <select id="volumeFilter"><option value="">All volumes</option></select>
+    <input type="search" id="q" placeholder="Search files by name…" autofocus>
+  </div>
+  <nav id="breadcrumbs" class="breadcrumbs"></nav>
+  <div id="err"></div>
+  <table id="results">
+    <thead><tr><th>Name</th><th>Type</th><th>Volume</th><th>Path</th><th>Size</th><th>Modified</th></tr></thead>
+    <tbody></tbody>
+  </table>
+
+  <script type="module" src="/js/search.js"></script>
+</body>
+</html>
