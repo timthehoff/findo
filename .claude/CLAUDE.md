@@ -91,7 +91,9 @@ comment for the `curl` command that registers it as a volume).
   `internal/index` (SQLite-backed metadata store, `modernc.org/sqlite`, pure
   Go/no cgo; also owns volume config CRUD in `volumes.go`) · `internal/httpapi`
   (routes/handlers/per-volume crawl orchestration) · `internal/dashboard`
-  (embedded static HTML/JS, no build step, no frontend framework).
+  (embedded static multi-page site: `index.html` for volume config/
+  monitoring, `search.html` for search/browse, sharing `css/`/`js/` between
+  them — no build step, no frontend framework, ES modules loaded directly).
 - `httpapi.Server` holds a `map[int64]*volumeRuntime` (one SMB session +
   crawling flag + watch/periodic-crawl goroutines per configured volume),
   guarded by a mutex since volumes can be added/edited/removed at runtime.
@@ -161,8 +163,16 @@ comment for the `curl` command that registers it as a volume).
     `go mod tidy` (from `backend/`) — it turns the branch name back into a
     pseudo-version pinned to that exact commit; don't hand-edit the
     `replace` line's version.
-- Keep the dashboard (`internal/dashboard/static/index.html`) as plain
-  HTML/CSS/JS calling the JSON API via `fetch` — no build tooling for it.
+- Keep the dashboard (`internal/dashboard/static/`) as plain HTML/CSS/JS
+  calling the JSON API via `fetch` — no build tooling, no frontend
+  framework. It's multiple pages/files, not one monolith: `index.html`
+  (volume config + monitoring) and `search.html` (search/browse) each pull
+  in shared `css/base.css` plus their own page CSS, and shared `js/util.js`
+  (formatting/escaping helpers) + `js/api.js` (fetch wrapper) via native ES
+  module `import`/`export` — no bundler needed since browsers load `.js`
+  modules directly. Add a new page the same way: its own `.html` + page-
+  specific `css/`/`js/` files, reusing `base.css`/`util.js`/`api.js` rather
+  than duplicating them.
 
 ## Workflow
 

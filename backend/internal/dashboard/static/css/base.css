@@ -1,0 +1,66 @@
+:root { color-scheme: light dark; }
+
+body {
+  font-family: -apple-system, system-ui, sans-serif;
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 0 1rem 2rem;
+  color: #1a1a1a;
+  background: #fff;
+}
+@media (prefers-color-scheme: dark) {
+  body { color: #e8e8e8; background: #1a1a1a; }
+  .card { border-color: #444; }
+  .card .label { color: #999; }
+  th, td { border-color: #333; }
+  input, select { background: #2a2a2a; color: #e8e8e8; border-color: #555; }
+  .topnav { border-color: #333; }
+}
+
+h1 { font-size: 1.3rem; }
+h2 { font-size: 1.05rem; margin-top: 2rem; }
+
+.topnav {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 1rem 0;
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid #eee;
+}
+.topnav .brand { font-weight: 700; margin-right: auto; }
+.topnav a { color: inherit; text-decoration: none; font-size: 0.9rem; opacity: 0.7; }
+.topnav a.active { opacity: 1; font-weight: 600; border-bottom: 2px solid currentColor; }
+
+.cards { display: flex; gap: 1rem; margin: 1rem 0 2rem; flex-wrap: wrap; }
+.card { border: 1px solid #ddd; border-radius: 8px; padding: 0.75rem 1rem; min-width: 140px; }
+.card .label { font-size: 0.75rem; color: #666; text-transform: uppercase; }
+.card .value { font-size: 1.4rem; font-weight: 600; }
+
+.ok { color: #1a7f37; }
+.bad { color: #cf222e; }
+.muted { color: #888; }
+
+form.inline { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
+input[type=text], input[type=password], input[type=search] { padding: 0.4rem 0.6rem; font-size: 1rem; }
+button { padding: 0.4rem 0.9rem; font-size: 1rem; cursor: pointer; }
+button.small { padding: 0.2rem 0.6rem; font-size: 0.85rem; }
+button.danger { color: #cf222e; }
+
+table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+th, td { text-align: left; padding: 0.3rem 0.5rem; border-bottom: 1px solid #eee; }
+
+#err { color: #cf222e; white-space: pre-wrap; }
+
+.badge { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.75rem; }
+.badge.ok { background: #d3f5df; color: #116329; }
+.badge.bad { background: #ffd7d5; color: #82071e; }
+@media (prefers-color-scheme: dark) {
+  .badge.ok { background: #113f22; color: #7ee2a8; }
+  .badge.bad { background: #4a1113; color: #ffaba8; }
+}
+
+dialog { border-radius: 10px; border: 1px solid #ccc; padding: 1.25rem; min-width: 320px; }
+dialog form { display: flex; flex-direction: column; gap: 0.6rem; }
+dialog label { font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.2rem; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem; }
