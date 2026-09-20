@@ -1,5 +1,9 @@
 import { escapeHTML, humanSize, debounce } from './util.js';
 import { getJSON } from './api.js';
+import { initTheme } from './theme.js';
+import { toast } from './toast.js';
+
+initTheme();
 
 const volumeSelect = document.getElementById('volumeFilter');
 const qInput = document.getElementById('q');
@@ -51,7 +55,8 @@ async function loadVolumes() {
       + volumes.map(v => `<option value="${v.id}">${escapeHTML(v.name)}</option>`).join('');
     volumeSelect.value = volumes.some(v => String(v.id) === prev) ? prev : '';
   } catch (e) {
-    errEl.textContent = 'Failed to load volumes: ' + e.message;
+    errEl.textContent = 'Could not fetch volumes: ' + e.message;
+    toast('Could not fetch volumes: ' + e.message, 'error');
   }
 }
 
@@ -88,7 +93,7 @@ function renderBreadcrumbs() {
 
 function renderResults(entries, query) {
   if (entries.length === 0) {
-    resultsBody.innerHTML = '<tr><td colspan="6" class="muted">No results.</td></tr>';
+    resultsBody.innerHTML = '<tr><td colspan="6" class="muted">No results — try a different scent.</td></tr>';
     return;
   }
 

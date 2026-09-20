@@ -173,6 +173,24 @@ comment for the `curl` command that registers it as a volume).
   modules directly. Add a new page the same way: its own `.html` + page-
   specific `css/`/`js/` files, reusing `base.css`/`util.js`/`api.js` rather
   than duplicating them.
+- Also shared across pages: `js/theme.js` (`initTheme()`, called once per
+  page) drives an explicit light/dark/system toggle — every button with
+  `[data-theme-toggle]` cycles it, storing the choice in `localStorage`
+  under `findo-theme` and setting `<html data-theme>`, which `base.css`'s
+  CSS custom properties key off alongside the `prefers-color-scheme`
+  media query (the explicit toggle wins over the OS setting either way).
+  `js/toast.js` (`toast(message, kind)`) is the shared notification stack
+  for action feedback (save/delete/reindex/test results) — prefer it over
+  `alert()` or a silently-refreshed UI. Colors (chart hue, badge/status
+  tones) follow the dataviz skill's validated default palette
+  (`references/palette.md`) — run its `validate_palette.js` before adding
+  any new chart or categorical color, don't eyeball it.
+- `GET /volumes/{id}/insights` (`Index.ExtensionBreakdown`/`LargestFiles`)
+  backs the dashboard's small per-volume charts (storage by file
+  extension, largest files) — plain aggregate SQL (`GROUP BY ext`/
+  `ORDER BY size DESC`), not computed client-side from a capped search
+  result, so it stays accurate on a NAS too large to page through in the
+  browser.
 
 ## Workflow
 

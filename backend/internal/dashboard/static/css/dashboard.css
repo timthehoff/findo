@@ -1,13 +1,21 @@
 #testResult { font-size: 0.85rem; min-height: 1.2em; }
 
-.volume { border: 1px solid #ddd; border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 0.75rem; }
+.volume { border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 0.75rem; background: var(--surface); }
 .volume-header { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; }
 .volume-header .name { font-weight: 600; }
-.volume-meta { font-size: 0.85rem; color: #888; margin: 0.25rem 0 0.5rem; }
+.volume-meta { font-size: 0.85rem; color: var(--muted); margin: 0.25rem 0 0.5rem; }
 .volume-actions { display: flex; gap: 0.4rem; }
-@media (prefers-color-scheme: dark) { .volume { border-color: #444; } }
 
-.history { margin-top: 0.5rem; border-top: 1px solid #eee; padding-top: 0.5rem; }
-@media (prefers-color-scheme: dark) { .history { border-color: #333; } }
+.history, .insights { margin-top: 0.5rem; border-top: 1px solid var(--border); padding-top: 0.5rem; }
 .history table { font-size: 0.8rem; }
-.history-empty { font-size: 0.85rem; color: #888; }
+.history-empty, .insights-empty { font-size: 0.85rem; color: var(--muted); }
+
+.insights h4 { font-size: 0.85rem; margin: 0.5rem 0 0.4rem; color: var(--fg-secondary); }
+.insights table { font-size: 0.8rem; }
+
+.bar-chart { display: flex; flex-direction: column; gap: 6px; }
+.bar-row { display: grid; grid-template-columns: 5.5em 1fr 5em; align-items: center; gap: 0.5rem; font-size: 0.8rem; }
+.bar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-secondary); }
+.bar-track { background: var(--border); border-radius: 4px; height: 12px; overflow: hidden; }
+.bar-fill { background: var(--chart-hue); height: 100%; border-radius: 4px; min-width: 2px; }
+.bar-value { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }

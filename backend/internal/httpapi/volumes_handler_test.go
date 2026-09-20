@@ -199,3 +199,30 @@ func TestReindexReturnsConflictWhileCrawling(t *testing.T) {
 		t.Fatalf("expected 409, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestVolumeInsightsReturnsExtensionsAndLargestFiles(t *testing.T) {
+	srv, smb, volID := newTestServer(t)
+	smb.set(smbclient.Entry{Path: "a.pdf", Name: "a.pdf", Size: 100})
+	smb.set(smbclient.Entry{Path: "b.jpg", Name: "b.jpg", Size: 900})
+	if err := srv.Crawl(volID, "manual"); err != nil {
+		t.Fatalf("Crawl: %v", err)
+	}
+
+	rec := doJSON(t, srv, "GET", "/volumes/"+strconv.FormatInt(volID, 10)+"/insights", nil)
+	if rec.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Extensions   []index.ExtStat `json:"extensions"`
+		LargestFiles []index.File    `json:"largestFiles"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(out.Extensions) != 2 || out.Extensions[0].Ext != "jpg" {
+		t.Fatalf("expected jpg first by size, got %+v", out.Extensions)
+	}
+	if len(out.LargestFiles) != 2 || out.LargestFiles[0].Name != "b.jpg" {
+		t.Fatalf("expected b.jpg first by size, got %+v", out.LargestFiles)
+	}
+}
