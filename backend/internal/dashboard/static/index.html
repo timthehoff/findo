@@ -5,48 +5,109 @@
 <title>Findo — Index Dashboard</title>
 <style>
   :root { color-scheme: light dark; }
-  body { font-family: -apple-system, system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; background: #fff; }
+  body { font-family: -apple-system, system-ui, sans-serif; max-width: 1000px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; background: #fff; }
   @media (prefers-color-scheme: dark) {
     body { color: #e8e8e8; background: #1a1a1a; }
-    .card { border-color: #444; }
+    .card, .volume { border-color: #444; }
     .card .label { color: #999; }
     th, td { border-color: #333; }
+    input, select { background: #2a2a2a; color: #e8e8e8; border-color: #555; }
   }
   h1 { font-size: 1.3rem; }
+  h2 { font-size: 1.05rem; margin-top: 2rem; }
   .cards { display: flex; gap: 1rem; margin: 1rem 0 2rem; flex-wrap: wrap; }
   .card { border: 1px solid #ddd; border-radius: 8px; padding: 0.75rem 1rem; min-width: 140px; }
   .card .label { font-size: 0.75rem; color: #666; text-transform: uppercase; }
   .card .value { font-size: 1.4rem; font-weight: 600; }
   .ok { color: #1a7f37; }
   .bad { color: #cf222e; }
-  form { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
-  input[type=text] { flex: 1; padding: 0.4rem 0.6rem; font-size: 1rem; }
+  .muted { color: #888; }
+  form.inline { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
+  input[type=text], input[type=password], input[type=search] { padding: 0.4rem 0.6rem; font-size: 1rem; }
+  #q { flex: 1; }
   button { padding: 0.4rem 0.9rem; font-size: 1rem; cursor: pointer; }
+  button.small { padding: 0.2rem 0.6rem; font-size: 0.85rem; }
+  button.danger { color: #cf222e; }
   table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
   th, td { text-align: left; padding: 0.3rem 0.5rem; border-bottom: 1px solid #eee; }
   #err { color: #cf222e; white-space: pre-wrap; }
+  .volume { border: 1px solid #ddd; border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 0.75rem; }
+  .volume-header { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; }
+  .volume-header .name { font-weight: 600; }
+  .volume-meta { font-size: 0.85rem; color: #888; margin: 0.25rem 0 0.5rem; }
+  .volume-actions { display: flex; gap: 0.4rem; }
+  .badge { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.75rem; }
+  .badge.ok { background: #d3f5df; color: #116329; }
+  .badge.bad { background: #ffd7d5; color: #82071e; }
+  @media (prefers-color-scheme: dark) {
+    .badge.ok { background: #113f22; color: #7ee2a8; }
+    .badge.bad { background: #4a1113; color: #ffaba8; }
+  }
+  dialog { border-radius: 10px; border: 1px solid #ccc; padding: 1.25rem; min-width: 320px; }
+  dialog form { display: flex; flex-direction: column; gap: 0.6rem; }
+  dialog label { font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.2rem; }
+  .dialog-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem; }
+  #testResult { font-size: 0.85rem; min-height: 1.2em; }
 </style>
 </head>
 <body>
   <h1>Findo — Index Dashboard</h1>
 
   <div class="cards" id="cards">loading…</div>
-  <button id="reindexBtn">Trigger reindex</button>
+
+  <h2>Volumes</h2>
+  <div id="volumes">loading…</div>
+  <button id="addVolumeBtn">+ Add volume</button>
 
   <h2>Browse / Search</h2>
-  <form id="queryForm">
-    <input type="text" id="q" placeholder="path=/ or search term">
+  <form class="inline" id="queryForm">
     <select id="mode">
-      <option value="files">List path</option>
       <option value="search">Search</option>
+      <option value="files">List path</option>
     </select>
+    <select id="volumeFilter"><option value="">All volumes</option></select>
+    <input type="text" id="q" placeholder="path=/ or search term">
     <button type="submit">Go</button>
   </form>
   <div id="err"></div>
-  <table id="results"><thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Modified</th></tr></thead><tbody></tbody></table>
+  <table id="results"><thead><tr><th>Volume</th><th>Name</th><th>Type</th><th>Size</th><th>Modified</th></tr></thead><tbody></tbody></table>
+
+  <dialog id="volumeDialog">
+    <form id="volumeForm">
+      <h2 id="volumeDialogTitle" style="margin:0 0 0.25rem">Add volume</h2>
+      <input type="hidden" id="volumeId">
+      <label>Name <input type="text" id="vName" required></label>
+      <label>Host <input type="text" id="vHost" required placeholder="nas.local or 192.0.2.10"></label>
+      <label>Share <input type="text" id="vShare" required></label>
+      <label>Username <input type="text" id="vUsername" required></label>
+      <label>Password <input type="password" id="vPassword" placeholder="leave blank to keep the current password" autocomplete="new-password"></label>
+      <div id="testResult"></div>
+      <div class="dialog-actions">
+        <button type="button" id="testBtn">Test connection</button>
+        <button type="button" id="cancelBtn">Cancel</button>
+        <button type="submit">Save</button>
+      </div>
+    </form>
+  </dialog>
 
 <script>
-async function refresh() {
+const volumeDialog = document.getElementById('volumeDialog');
+const volumeForm = document.getElementById('volumeForm');
+const testResult = document.getElementById('testResult');
+
+function humanSize(bytes) {
+  if (bytes === undefined || bytes === null) return '';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let n = bytes, i = 0;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  return (i === 0 ? n : n.toFixed(1)) + ' ' + units[i];
+}
+
+function escapeHTML(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function refreshStats() {
   const cards = document.getElementById('cards');
   try {
     const [health, stats] = await Promise.all([
@@ -56,33 +117,182 @@ async function refresh() {
     const healthClass = health.status === 'ok' ? 'ok' : 'bad';
     cards.innerHTML = `
       <div class="card"><div class="label">Health</div><div class="value ${healthClass}">${health.status}</div></div>
-      <div class="card"><div class="label">Files</div><div class="value">${stats.fileCount ?? 0}</div></div>
-      <div class="card"><div class="label">Dirs</div><div class="value">${stats.dirCount ?? 0}</div></div>
-      <div class="card"><div class="label">Last crawl</div><div class="value">${stats.lastCrawlAt ?? '—'}</div></div>
-      <div class="card"><div class="label">Crawling</div><div class="value">${stats.crawling ? 'yes' : 'no'}</div></div>
+      <div class="card"><div class="label">Files (all volumes)</div><div class="value">${stats.fileCount ?? 0}</div></div>
+      <div class="card"><div class="label">Dirs (all volumes)</div><div class="value">${stats.dirCount ?? 0}</div></div>
+      <div class="card"><div class="label">Volumes online</div><div class="value">${(health.volumes || []).filter(v => v.ok).length} / ${(health.volumes || []).length}</div></div>
     `;
   } catch (e) {
     cards.textContent = 'failed to load health/stats: ' + e;
   }
 }
 
-document.getElementById('reindexBtn').addEventListener('click', async () => {
-  await fetch('/reindex', { method: 'POST' });
-  refresh();
+async function refreshVolumes() {
+  const container = document.getElementById('volumes');
+  const filterSelect = document.getElementById('volumeFilter');
+  try {
+    const res = await fetch('/volumes');
+    const body = await res.json();
+    const volumes = body.volumes || [];
+
+    if (volumes.length === 0) {
+      container.innerHTML = '<p class="muted">No volumes configured yet. A good dog needs a yard to search — add one below.</p>';
+    } else {
+      container.innerHTML = volumes.map(v => {
+        const statusBadge = v.connected
+          ? '<span class="badge ok">connected</span>'
+          : '<span class="badge bad">' + (v.lastTestError ? 'error' : 'not connected') + '</span>';
+        const crawlBadge = v.crawling ? '<span class="badge ok">crawling…</span>' : '';
+        const lastCrawl = v.lastCrawlFinishedAt || v.lastCrawlStartedAt || 'never';
+        const errLine = v.lastCrawlError ? `<div class="volume-meta bad">Last crawl error: ${escapeHTML(v.lastCrawlError)}</div>` : '';
+        const testErrLine = (!v.connected && v.lastTestError) ? `<div class="volume-meta bad">${escapeHTML(v.lastTestError)}</div>` : '';
+        return `
+          <div class="volume" data-id="${v.id}">
+            <div class="volume-header">
+              <div>
+                <span class="name">${escapeHTML(v.name)}</span>
+                ${statusBadge} ${crawlBadge}
+              </div>
+              <div class="volume-actions">
+                <button class="small" data-action="reindex" data-id="${v.id}" ${v.crawling ? 'disabled' : ''}>Reindex</button>
+                <button class="small" data-action="test" data-id="${v.id}">Test</button>
+                <button class="small" data-action="edit" data-id="${v.id}">Edit</button>
+                <button class="small danger" data-action="delete" data-id="${v.id}">Delete</button>
+              </div>
+            </div>
+            <div class="volume-meta">
+              \\\\${escapeHTML(v.host)}\\${escapeHTML(v.share)} as ${escapeHTML(v.username)}
+              &middot; ${v.fileCount ?? 0} files, ${v.dirCount ?? 0} dirs
+              &middot; last crawl: ${escapeHTML(lastCrawl)}
+              ${v.enabled ? '' : ' &middot; <strong>disabled</strong>'}
+            </div>
+            ${errLine}${testErrLine}
+          </div>
+        `;
+      }).join('');
+    }
+
+    const prevFilter = filterSelect.value;
+    filterSelect.innerHTML = '<option value="">All volumes</option>' +
+      volumes.map(v => `<option value="${v.id}">${escapeHTML(v.name)}</option>`).join('');
+    filterSelect.value = prevFilter;
+
+    container.querySelectorAll('button[data-action]').forEach(btn => {
+      btn.addEventListener('click', () => handleVolumeAction(btn.dataset.action, btn.dataset.id, volumes));
+    });
+  } catch (e) {
+    container.textContent = 'failed to load volumes: ' + e;
+  }
+}
+
+async function handleVolumeAction(action, id, volumes) {
+  if (action === 'reindex') {
+    await fetch(`/volumes/${id}/reindex`, { method: 'POST' });
+    refreshVolumes();
+  } else if (action === 'test') {
+    const res = await fetch(`/volumes/${id}/test`, { method: 'POST' });
+    const body = await res.json();
+    alert(body.ok ? 'Connection OK' : 'Connection failed: ' + body.error);
+    refreshVolumes();
+  } else if (action === 'edit') {
+    const v = volumes.find(v => String(v.id) === String(id));
+    openVolumeDialog(v);
+  } else if (action === 'delete') {
+    if (!confirm('Delete this volume and everything indexed under it? This cannot be undone.')) return;
+    await fetch(`/volumes/${id}`, { method: 'DELETE' });
+    refreshVolumes();
+    refreshStats();
+  }
+}
+
+function openVolumeDialog(v) {
+  volumeForm.reset();
+  testResult.textContent = '';
+  document.getElementById('volumeId').value = v ? v.id : '';
+  document.getElementById('volumeDialogTitle').textContent = v ? 'Edit volume' : 'Add volume';
+  document.getElementById('vName').value = v ? v.name : '';
+  document.getElementById('vHost').value = v ? v.host : '';
+  document.getElementById('vShare').value = v ? v.share : '';
+  document.getElementById('vUsername').value = v ? v.username : '';
+  document.getElementById('vPassword').placeholder = v ? 'leave blank to keep the current password' : '';
+  document.getElementById('vPassword').required = !v;
+  volumeDialog.showModal();
+}
+
+function currentVolumeInput() {
+  return {
+    name: document.getElementById('vName').value,
+    host: document.getElementById('vHost').value,
+    share: document.getElementById('vShare').value,
+    username: document.getElementById('vUsername').value,
+    password: document.getElementById('vPassword').value,
+  };
+}
+
+document.getElementById('addVolumeBtn').addEventListener('click', () => openVolumeDialog(null));
+document.getElementById('cancelBtn').addEventListener('click', () => volumeDialog.close());
+
+document.getElementById('testBtn').addEventListener('click', async () => {
+  const input = currentVolumeInput();
+  const id = document.getElementById('volumeId').value;
+  testResult.textContent = 'Testing…';
+  try {
+    const url = (id && !input.password) ? `/volumes/${id}/test` : '/volumes/test';
+    const opts = { method: 'POST' };
+    if (!(id && !input.password)) {
+      opts.headers = { 'Content-Type': 'application/json' };
+      opts.body = JSON.stringify(input);
+    }
+    const res = await fetch(url, opts);
+    const body = await res.json();
+    testResult.textContent = body.ok ? '✓ Connected' : '✗ ' + body.error;
+    testResult.className = body.ok ? 'ok' : 'bad';
+  } catch (e) {
+    testResult.textContent = 'Test failed: ' + e;
+    testResult.className = 'bad';
+  }
+});
+
+volumeForm.addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const id = document.getElementById('volumeId').value;
+  const input = currentVolumeInput();
+  if (!input.password) delete input.password;
+
+  const url = id ? `/volumes/${id}` : '/volumes';
+  const method = id ? 'PUT' : 'POST';
+  const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    testResult.textContent = body.error || 'Save failed';
+    testResult.className = 'bad';
+    return;
+  }
+  volumeDialog.close();
+  refreshVolumes();
+  refreshStats();
 });
 
 document.getElementById('queryForm').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   const q = document.getElementById('q').value;
   const mode = document.getElementById('mode').value;
+  const volumeId = document.getElementById('volumeFilter').value;
   const errEl = document.getElementById('err');
   const tbody = document.querySelector('#results tbody');
   errEl.textContent = '';
   tbody.innerHTML = '';
 
-  const url = mode === 'search'
-    ? '/search?q=' + encodeURIComponent(q)
-    : '/files?path=' + encodeURIComponent(q);
+  let url;
+  if (mode === 'search') {
+    url = '/search?q=' + encodeURIComponent(q);
+    if (volumeId) url += '&volume=' + encodeURIComponent(volumeId);
+  } else {
+    if (!volumeId) {
+      errEl.textContent = 'Pick a specific volume to browse a path.';
+      return;
+    }
+    url = '/files?path=' + encodeURIComponent(q) + '&volume=' + encodeURIComponent(volumeId);
+  }
 
   try {
     const res = await fetch(url);
@@ -91,15 +301,25 @@ document.getElementById('queryForm').addEventListener('submit', async (ev) => {
       errEl.textContent = body.error || res.statusText;
       return;
     }
+    const volSelect = document.getElementById('volumeFilter');
+    const volName = id => {
+      const opt = volSelect.querySelector(`option[value="${id}"]`);
+      return opt ? opt.textContent : id;
+    };
     for (const f of body.entries || []) {
       const tr = document.createElement('tr');
-      tr.innerHTML = `<td>${f.path}</td><td>${f.isDir ? 'dir' : f.ext}</td><td>${f.isDir ? '' : f.size}</td><td>${new Date(f.modTime * 1000).toLocaleString()}</td>`;
+      tr.innerHTML = `<td>${escapeHTML(volName(f.volumeId))}</td><td>${escapeHTML(f.path)}</td><td>${f.isDir ? 'dir' : escapeHTML(f.ext)}</td><td>${f.isDir ? '' : humanSize(f.size)}</td><td>${new Date(f.modTime * 1000).toLocaleString()}</td>`;
       tbody.appendChild(tr);
     }
   } catch (e) {
     errEl.textContent = String(e);
   }
 });
+
+function refresh() {
+  refreshStats();
+  refreshVolumes();
+}
 
 refresh();
 setInterval(refresh, 5000);

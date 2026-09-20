@@ -55,29 +55,48 @@ App Intents/Spotlight indexing).
 
 ## Current status
 
-Backend Milestone 1 only: SMB crawl → SQLite index → read-only HTTP API
-(list, search, Range-aware content, health/stats, manual reindex), kept
-fresh between crawls by a live change-notify listener. No write/save-back
-API yet, no conflict-version tracking yet, no iOS project in the repo yet.
+Backend Milestone 1, plus multi-volume config: SMB crawl → SQLite index →
+read-only HTTP API (list, search, Range-aware content, health/stats, manual
+reindex), kept fresh between crawls by a live change-notify listener. One
+server can run several independently-crawled SMB volumes at once, configured
+at runtime (not via `.env`) through `/volumes` and the dashboard, with
+passwords encrypted at rest (`internal/crypto`, AES-256-GCM under
+`FINDO_MASTER_KEY`). No write/save-back API yet, no conflict-version
+tracking yet, no iOS project in the repo yet.
 
 ## Environment / secrets
 
-Never invent NAS hostnames, ports, or credentials. Real values go in
-`backend/.env` (gitignored, copied from `backend/.env.example`) or are
-supplied by the project owner — ask rather than guessing. For local
+Never invent NAS hostnames, ports, or credentials. `FINDO_MASTER_KEY`
+(encrypts volume passwords at rest) goes in `backend/.env` (gitignored,
+copied from `backend/.env.example`) or is supplied by the project owner —
+ask rather than guessing. SMB volume connection details themselves aren't
+environment config: they're added at runtime via `POST /volumes` or the
+dashboard, and the server starts fine with zero configured. For local
 end-to-end testing without the real NAS, use `backend/docker-compose.dev.yml`
-(throwaway Samba container seeded from `backend/testdata/seed/`).
+(throwaway Samba container seeded from `backend/testdata/seed/`; see its
+comment for the `curl` command that registers it as a volume).
 
 ## Backend conventions (Go, `backend/`)
 
 - Module: `github.com/thoff/findo/backend`, Go 1.25.
 - Layout: `cmd/findo-server` (entrypoint) · `internal/config` (env/.env
-  loading) · `internal/smbclient` (SMB2 session via `go-smb2`, wraps one
-  long-lived session — don't reconnect per request) · `internal/index`
-  (SQLite-backed metadata store, `modernc.org/sqlite`, pure Go/no cgo) ·
-  `internal/httpapi` (routes/handlers/crawl orchestration) ·
-  `internal/dashboard` (embedded static HTML/JS, no build step, no frontend
-  framework).
+  loading; just `FINDO_MASTER_KEY`/`HTTP_ADDR`/`DB_PATH` — no SMB connection
+  details) · `internal/crypto` (AES-256-GCM encrypt/decrypt for volume
+  passwords at rest) · `internal/smbclient` (SMB2 session via `go-smb2`,
+  wraps one long-lived session per volume — don't reconnect per request) ·
+  `internal/index` (SQLite-backed metadata store, `modernc.org/sqlite`, pure
+  Go/no cgo; also owns volume config CRUD in `volumes.go`) · `internal/httpapi`
+  (routes/handlers/per-volume crawl orchestration) · `internal/dashboard`
+  (embedded static HTML/JS, no build step, no frontend framework).
+- `httpapi.Server` holds a `map[int64]*volumeRuntime` (one SMB session +
+  crawling flag + watch/periodic-crawl goroutines per configured volume),
+  guarded by a mutex since volumes can be added/edited/removed at runtime.
+  `Server.StartVolume` connects and registers a volume's runtime, then
+  chains its initial crawl and change-notify watch; `Server.stopVolume`
+  tears it down (used on delete, disable, or before reconnecting after an
+  edit). Every `Index` method that touches `files`/`crawl_runs` takes an
+  explicit `volumeID` — the same SQLite DB backs every volume, distinguished
+  by that column, rather than one DB file per volume.
 - SQLite is opened with `SetMaxOpenConns(1)` since the crawler and HTTP
   handlers share one `*sql.DB` — don't raise this without also handling
   concurrent-writer locking (WAL mode, busy_timeout, etc.). Only one
@@ -106,8 +125,9 @@ end-to-end testing without the real NAS, use `backend/docker-compose.dev.yml`
   request/response traffic). `httpapi.Server.Watch` applies each event
   directly (`Index.Upsert`/`Index.Delete`, stamped with the sentinel run id
   0 so the next real crawl's sweep can confirm or correct it) and triggers
-  a full `Crawl` (`Server.resync`, sharing the `/reindex` crawling guard)
-  whenever the notify stream can't guarantee continuity — a
+  a full `Crawl` (`Server.resync`, sharing `Server.triggerCrawl`'s
+  per-volume crawling guard with the manual `/volumes/{id}/reindex`
+  endpoint) whenever the notify stream can't guarantee continuity — a
   `STATUS_NOTIFY_ENUM_DIR` overflow or a lost connection
   (`smbclient.ErrNeedsResync`). `Server.PeriodicCrawl` runs the same resync
   path on a fixed interval (24h, hardcoded in `main.go`) as a safety net

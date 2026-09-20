@@ -25,7 +25,8 @@ type fakeSMB struct {
 	watchEvents chan smbclient.ChangeEvent
 	watchErrs   chan error
 
-	pingErr error
+	pingErr    error
+	connectErr error
 }
 
 func newFakeSMB() *fakeSMB {
@@ -77,3 +78,9 @@ func (f *fakeSMB) Stat(path string) (smbclient.Entry, bool, error) {
 func (f *fakeSMB) Watch(ctx context.Context, filter uint32) (<-chan smbclient.ChangeEvent, <-chan error) {
 	return f.watchEvents, f.watchErrs
 }
+
+func (f *fakeSMB) Connect() error {
+	return f.connectErr
+}
+
+func (f *fakeSMB) Close() {}

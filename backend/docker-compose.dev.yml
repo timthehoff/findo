@@ -1,6 +1,14 @@
 # Dev-only stack: a throwaway Samba server seeded with sample files, plus
 # the findo backend pointed at it. Lets the HTTP API be exercised end-to-end
 # without access to the real NAS. Not for production use.
+#
+# The findo service starts with no volumes configured — register the samba
+# container as one after `docker compose up`:
+#
+#   curl -X POST localhost:8080/volumes -d '{
+#     "name": "dev samba", "host": "samba", "share": "testshare",
+#     "username": "testuser", "password": "testpass"
+#   }'
 services:
   samba:
     image: dperson/samba
@@ -17,10 +25,9 @@ services:
     ports:
       - "8080:8080"
     environment:
-      SMB_HOST: samba
-      SMB_SHARE: testshare
-      SMB_USER: testuser
-      SMB_PASS: testpass
+      # Dev-only key, fine to commit: this stack's DB never holds anything
+      # but the throwaway samba container's own dummy credentials.
+      FINDO_MASTER_KEY: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
       HTTP_ADDR: ":8080"
       DB_PATH: "/data/findo.db"
     volumes:
