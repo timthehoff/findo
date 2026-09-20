@@ -56,9 +56,9 @@ App Intents/Spotlight indexing).
 ## Current status
 
 Backend Milestone 1 only: SMB crawl → SQLite index → read-only HTTP API
-(list, search, Range-aware content, health/stats, manual reindex). No
-write/save-back API yet, no conflict-version tracking yet, no iOS project in
-the repo yet.
+(list, search, Range-aware content, health/stats, manual reindex), kept
+fresh between crawls by a live change-notify listener. No write/save-back
+API yet, no conflict-version tracking yet, no iOS project in the repo yet.
 
 ## Environment / secrets
 
@@ -100,11 +100,35 @@ end-to-end testing without the real NAS, use `backend/docker-compose.dev.yml`
   sweep step entirely if any directory failed to list, since a sweep can't
   tell a genuine deletion from a subtree it simply couldn't observe that
   run — better to leave stale rows in place than risk deleting real files.
+- Live updates: `smbclient.Client.Watch` streams NAS changes via SMB2
+  `CHANGE_NOTIFY` on a dedicated session (a notify request sits outstanding
+  until an event arrives, so it can't share the session used for
+  request/response traffic). `httpapi.Server.Watch` applies each event
+  directly (`Index.Upsert`/`Index.Delete`, stamped with the sentinel run id
+  0 so the next real crawl's sweep can confirm or correct it) and triggers
+  a full `Crawl` (`Server.resync`, sharing the `/reindex` crawling guard)
+  whenever the notify stream can't guarantee continuity — a
+  `STATUS_NOTIFY_ENUM_DIR` overflow or a lost connection
+  (`smbclient.ErrNeedsResync`). `Server.PeriodicCrawl` runs the same resync
+  path on a fixed interval (24h, hardcoded in `main.go`) as a safety net
+  regardless of notify health.
+  - `github.com/hirochachacha/go-smb2` only defines the `CHANGE_NOTIFY`
+    command opcode, not its request/response wire format, so it's vendored
+    locally at `backend/third_party/go-smb2` (via a `go.mod` `replace`)
+    with that added in `notify.go` (root package) and
+    `internal/smb2/{request,response,fscc,const}.go` (wire format, per
+    MS-SMB2/MS-FSCC), tested independently of a live server in
+    `internal/smb2/notify_test.go`. Vendored, not forked on GitHub, since
+    this is a single-repo project — no reason to host it separately. Don't
+    reformat or otherwise touch the rest of `third_party/` beyond what a
+    real upstream sync would change; `make check`/`make fix` exclude it
+    from the gofmt pass for that reason (`go vet`/`go test` already skip it
+    naturally — it's a separate Go module).
 - Use the `backend/Makefile` rather than raw `go` commands: `make build`
-  (default), `make check` (`gofmt -l` + `go vet`), `make fix` (`gofmt -w`),
-  `make test` (`go test -race ./...`), `make run` (`go run
-  ./cmd/findo-server`, reads `.env` in the working directory). CI runs
-  `make check test build`.
+  (default), `make check` (`gofmt -l` + `go vet`, excluding
+  `third_party/`), `make fix` (`gofmt -w`, same exclusion), `make test`
+  (`go test -race ./...`), `make run` (`go run ./cmd/findo-server`, reads
+  `.env` in the working directory). CI runs `make check test build`.
 - Keep the dashboard (`internal/dashboard/static/index.html`) as plain
   HTML/CSS/JS calling the JSON API via `fetch` — no build tooling for it.
 

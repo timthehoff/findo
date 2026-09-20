@@ -7,7 +7,7 @@ build:
 	go build -o $(BINARY) $(PKG)
 
 check:
-	@fmtout="$$(gofmt -l .)"; \
+	@fmtout="$$(gofmt -l $$(find . -name '*.go' -not -path './third_party/*'))"; \
 	if [ -n "$$fmtout" ]; then \
 		echo "gofmt needs to be run on:"; \
 		echo "$$fmtout"; \
@@ -16,7 +16,7 @@ check:
 	go vet ./...
 
 fix:
-	gofmt -w .
+	gofmt -w $$(find . -name '*.go' -not -path './third_party/*')
 
 test:
 	go test -race ./...

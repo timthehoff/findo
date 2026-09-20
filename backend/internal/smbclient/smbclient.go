@@ -40,6 +40,41 @@ func New(host, share, user, pass string) *Client {
 	return &Client{host: host, share: share, user: user, pass: pass}
 }
 
+// dial opens a fresh TCP connection, SMB2 session, and mounted share.
+// Factored out of connectLocked so Watch can open its own dedicated
+// session (a CHANGE_NOTIFY request sits outstanding until an event
+// arrives, so it can't share a session with request/response traffic that
+// expects a timely reply) without duplicating the setup/error-cleanup
+// dance.
+func dial(host, share, user, pass string) (net.Conn, *smb2.Session, *smb2.Share, error) {
+	conn, err := net.Dial("tcp", net.JoinHostPort(host, "445"))
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("dial %s:445: %w", host, err)
+	}
+
+	d := &smb2.Dialer{
+		Initiator: &smb2.NTLMInitiator{
+			User:     user,
+			Password: pass,
+		},
+	}
+
+	sess, err := d.Dial(conn)
+	if err != nil {
+		conn.Close()
+		return nil, nil, nil, fmt.Errorf("smb session setup: %w", err)
+	}
+
+	fs, err := sess.Mount(fmt.Sprintf(`\\%s\%s`, host, share))
+	if err != nil {
+		sess.Logoff()
+		conn.Close()
+		return nil, nil, nil, fmt.Errorf("mount share %q: %w", share, err)
+	}
+
+	return conn, sess, fs, nil
+}
+
 // Connect dials the NAS and mounts the configured share. Safe to call again
 // after Close to reconnect.
 func (c *Client) Connect() error {
@@ -49,29 +84,9 @@ func (c *Client) Connect() error {
 }
 
 func (c *Client) connectLocked() error {
-	conn, err := net.Dial("tcp", net.JoinHostPort(c.host, "445"))
+	conn, sess, fs, err := dial(c.host, c.share, c.user, c.pass)
 	if err != nil {
-		return fmt.Errorf("dial %s:445: %w", c.host, err)
-	}
-
-	d := &smb2.Dialer{
-		Initiator: &smb2.NTLMInitiator{
-			User:     c.user,
-			Password: c.pass,
-		},
-	}
-
-	sess, err := d.Dial(conn)
-	if err != nil {
-		conn.Close()
-		return fmt.Errorf("smb session setup: %w", err)
-	}
-
-	fs, err := sess.Mount(fmt.Sprintf(`\\%s\%s`, c.host, c.share))
-	if err != nil {
-		sess.Logoff()
-		conn.Close()
-		return fmt.Errorf("mount share %q: %w", c.share, err)
+		return err
 	}
 
 	c.conn = conn
@@ -120,6 +135,34 @@ type Entry struct {
 	IsDir   bool
 	Size    int64
 	ModTime int64 // unix seconds
+}
+
+// Stat returns metadata for a single share-relative path, or ok=false if
+// it doesn't exist — e.g. a change-notify event for a file that was
+// already removed again by the time it's processed.
+func (c *Client) Stat(path string) (Entry, bool, error) {
+	c.mu.Lock()
+	fs := c.fs
+	c.mu.Unlock()
+	if fs == nil {
+		return Entry{}, false, fmt.Errorf("not connected")
+	}
+
+	info, err := fs.Stat(toSMBPath(path))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return Entry{}, false, nil
+		}
+		return Entry{}, false, fmt.Errorf("stat %q: %w", path, err)
+	}
+
+	return Entry{
+		Path:    strings.Trim(path, "/"),
+		Name:    info.Name(),
+		IsDir:   info.IsDir(),
+		Size:    info.Size(),
+		ModTime: info.ModTime().Unix(),
+	}, true, nil
 }
 
 // Walk recursively lists every entry under root ("" or "." for share root),

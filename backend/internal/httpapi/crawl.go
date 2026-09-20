@@ -1,7 +1,9 @@
 package httpapi
 
 import (
+	"context"
 	"log"
+	"time"
 
 	"github.com/thoff/findo/backend/internal/index"
 	"github.com/thoff/findo/backend/internal/smbclient"
@@ -72,4 +74,22 @@ func (s *Server) Crawl() error {
 		log.Printf("crawl complete: %d entries indexed", written)
 	}
 	return runErr
+}
+
+// PeriodicCrawl runs a full Crawl on a fixed interval until ctx is
+// cancelled — a safety net alongside the change-notify listener (Watch),
+// since a missed or misread notification is hard to fully rule out over a
+// long enough time. Shares Watch's resync path, so it won't pile a crawl
+// on top of one already running.
+func (s *Server) PeriodicCrawl(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			s.resync()
+		case <-ctx.Done():
+			return
+		}
+	}
 }

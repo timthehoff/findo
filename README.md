@@ -45,6 +45,12 @@ Only **Milestone 1** of the backend is built:
   longer present) rather than wiping and rebuilding from scratch, and is
   best-effort — a directory that fails to list is recorded and skipped
   rather than aborting the whole crawl.
+- A live change-notify listener (SMB2 `CHANGE_NOTIFY`) keeps the index in
+  sync between crawls, applying individual add/modify/remove/rename events
+  directly. Whenever it can't guarantee it saw everything (the NAS reports
+  dropped changes, or the watch session had to reconnect), it triggers a
+  full crawl to catch up — plus a daily full crawl runs regardless, as a
+  safety net.
 - HTTP API: `GET /files` (list by dir), `GET /search` (name search),
   `GET /files/content` (Range-aware streamed read via `http.ServeContent`),
   `GET /health`, `GET /stats`, `POST /reindex`.
@@ -77,8 +83,8 @@ All run from `backend/`:
 | Target | What it does |
 | --- | --- |
 | `make build` (default) | `go build` the server binary |
-| `make check` | `gofmt -l` + `go vet` |
-| `make fix` | `gofmt -w` to auto-format |
+| `make check` | `gofmt -l` + `go vet` (excludes vendored `third_party/`) |
+| `make fix` | `gofmt -w` to auto-format (excludes `third_party/`) |
 | `make test` | `go test -race ./...` |
 | `make run` | `go run ./cmd/findo-server` |
 
@@ -105,9 +111,10 @@ directly, e.g. `curl http://localhost:8080/search?q=budget`.
 backend/
   cmd/findo-server/       # main entrypoint
   internal/config/        # env/.env config loading
-  internal/smbclient/     # SMB2 session, walk, open (go-smb2)
+  internal/smbclient/     # SMB2 session, walk, open, change-notify watch
   internal/index/         # SQLite-backed file metadata index
   internal/httpapi/       # HTTP routes, handlers, crawl orchestration
   internal/dashboard/     # embedded static HTML dashboard
+  third_party/go-smb2/    # vendored go-smb2, extended with CHANGE_NOTIFY
   testdata/seed/          # sample files for the dev Samba container
 ```

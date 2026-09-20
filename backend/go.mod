@@ -7,6 +7,12 @@ require (
 	modernc.org/sqlite v1.59.0
 )
 
+// go-smb2 doesn't implement the SMB2 CHANGE_NOTIFY request/response wire
+// format (only the bare command opcode exists upstream) — vendored locally
+// with that added so the crawler can watch for NAS changes instead of only
+// polling full sweeps. See third_party/go-smb2/notify.go.
+replace github.com/hirochachacha/go-smb2 => ./third_party/go-smb2
+
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/geoffgarside/ber v1.1.0 // indirect
