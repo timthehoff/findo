@@ -4,26 +4,41 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"sync/atomic"
 	"time"
+
+	"github.com/hirochachacha/go-smb2"
 
 	"github.com/thoff/findo/backend/internal/dashboard"
 	"github.com/thoff/findo/backend/internal/index"
 	"github.com/thoff/findo/backend/internal/smbclient"
 )
 
+// smbClient is the subset of *smbclient.Client's behavior Server depends
+// on, narrowed to an interface so tests can substitute a fake NAS instead
+// of a live SMB session. *smbclient.Client satisfies this as-is.
+type smbClient interface {
+	Walk(root string, fn func(smbclient.Entry)) error
+	Open(path string) (*smb2.File, os.FileInfo, error)
+	Ping() error
+	Stat(path string) (smbclient.Entry, bool, error)
+	Watch(ctx context.Context, filter uint32) (<-chan smbclient.ChangeEvent, <-chan error)
+}
+
 type Server struct {
-	smb *smbclient.Client
+	smb smbClient
 	idx *index.Index
 
 	crawling atomic.Bool
 }
 
-func NewServer(smb *smbclient.Client, idx *index.Index) *Server {
+func NewServer(smb smbClient, idx *index.Index) *Server {
 	return &Server{smb: smb, idx: idx}
 }
 

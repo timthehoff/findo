@@ -56,9 +56,9 @@ App Intents/Spotlight indexing).
 ## Current status
 
 Backend Milestone 1 only: SMB crawl → SQLite index → read-only HTTP API
-(list, search, Range-aware content, health/stats, manual reindex). No
-write/save-back API yet, no conflict-version tracking yet, no iOS project in
-the repo yet.
+(list, search, Range-aware content, health/stats, manual reindex), kept
+fresh between crawls by a live change-notify listener. No write/save-back
+API yet, no conflict-version tracking yet, no iOS project in the repo yet.
 
 ## Environment / secrets
 
@@ -100,11 +100,35 @@ end-to-end testing without the real NAS, use `backend/docker-compose.dev.yml`
   sweep step entirely if any directory failed to list, since a sweep can't
   tell a genuine deletion from a subtree it simply couldn't observe that
   run — better to leave stale rows in place than risk deleting real files.
-- Use the `backend/Makefile` rather than raw `go` commands: `make build`
-  (default), `make check` (`gofmt -l` + `go vet`), `make fix` (`gofmt -w`),
-  `make test` (`go test -race ./...`), `make run` (`go run
-  ./cmd/findo-server`, reads `.env` in the working directory). CI runs
-  `make check test build`.
+- Live updates: `smbclient.Client.Watch` streams NAS changes via SMB2
+  `CHANGE_NOTIFY` on a dedicated session (a notify request sits outstanding
+  until an event arrives, so it can't share the session used for
+  request/response traffic). `httpapi.Server.Watch` applies each event
+  directly (`Index.Upsert`/`Index.Delete`, stamped with the sentinel run id
+  0 so the next real crawl's sweep can confirm or correct it) and triggers
+  a full `Crawl` (`Server.resync`, sharing the `/reindex` crawling guard)
+  whenever the notify stream can't guarantee continuity — a
+  `STATUS_NOTIFY_ENUM_DIR` overflow or a lost connection
+  (`smbclient.ErrNeedsResync`). `Server.PeriodicCrawl` runs the same resync
+  path on a fixed interval (24h, hardcoded in `main.go`) as a safety net
+  regardless of notify health.
+  - `github.com/hirochachacha/go-smb2` only defines the `CHANGE_NOTIFY`
+    command opcode, not its request/response wire format, so we depend on
+    [`timthehoff/go-smb2`](https://github.com/timthehoff/go-smb2) — a real
+    GitHub fork, not a vendored copy — via a `go.mod` `replace` pointing at
+    its `change-notify` branch. The added code
+    (`notify.go` in the fork's root package;
+    `internal/smb2/{request,response,fscc,const}.go` for the wire format,
+    per MS-SMB2/MS-FSCC) lives entirely in that fork's own repo/PR, tested
+    there independently of a live server. Pull upstream fixes into the
+    fork with normal git tooling (`git fetch upstream && git rebase
+    upstream/master` from a clone of the fork with `upstream` pointed at
+    `hirochachacha/go-smb2`) rather than hand-reapplying a diff — that's
+    the whole reason this is a real fork and not vendored source.
+  - After pushing new commits to the fork, re-resolve the pin here with
+    `go mod tidy` (from `backend/`) — it turns the branch name back into a
+    pseudo-version pinned to that exact commit; don't hand-edit the
+    `replace` line's version.
 - Keep the dashboard (`internal/dashboard/static/index.html`) as plain
   HTML/CSS/JS calling the JSON API via `fetch` — no build tooling for it.
 
