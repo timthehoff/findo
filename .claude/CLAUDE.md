@@ -55,14 +55,18 @@ App Intents/Spotlight indexing).
 
 ## Current status
 
-Backend Milestone 1, plus multi-volume config: SMB crawl → SQLite index →
-read-only HTTP API (list, search, Range-aware content, health/stats, manual
-reindex), kept fresh between crawls by a live change-notify listener. One
-server can run several independently-crawled SMB volumes at once, configured
-at runtime (not via `.env`) through `/volumes` and the dashboard, with
-passwords encrypted at rest (`internal/crypto`, AES-256-GCM under
-`FINDO_MASTER_KEY`). No write/save-back API yet, no conflict-version
-tracking yet, no iOS project in the repo yet.
+Backend Milestone 1, plus multi-volume config and crawl monitoring: SMB
+crawl → SQLite index → read-only HTTP API (list, search, Range-aware
+content, health/stats, manual reindex), kept fresh between crawls by a live
+change-notify listener. One server can run several independently-crawled
+SMB volumes at once, configured at runtime (not via `.env`) through
+`/volumes` and the dashboard, with passwords encrypted at rest
+(`internal/crypto`, AES-256-GCM under `FINDO_MASTER_KEY`). Every crawl run
+is recorded with why it started (`manual`/`startup`/`periodic`/`resync`),
+duration, and files/bytes seen or removed (`GET /volumes/{id}/crawl-runs`),
+and each volume's change-notify listener reports its own connected/last-
+event/resync-count state — both shown in the dashboard. No write/save-back
+API yet, no conflict-version tracking yet, no iOS project in the repo yet.
 
 ## Environment / secrets
 
@@ -97,6 +101,14 @@ comment for the `curl` command that registers it as a volume).
   edit). Every `Index` method that touches `files`/`crawl_runs` takes an
   explicit `volumeID` — the same SQLite DB backs every volume, distinguished
   by that column, rather than one DB file per volume.
+- Every crawl records a `trigger` (`manual` from `/reindex`, `startup` from
+  `StartVolume`'s initial crawl, `periodic` from the 24h safety net,
+  `resync` from a change-notify gap) plus `files_seen`/`files_removed`/
+  `bytes_indexed`/`duration_ms`, written by `Index.FinishCrawlRun` and
+  queryable via `Index.CrawlRuns`/`GET /volumes/{id}/crawl-runs`.
+  `volumeRuntime` also tracks change-notify health in memory (connected,
+  last event time, resync count) — not persisted, since it's only
+  meaningful for the currently-running process.
 - SQLite is opened with `SetMaxOpenConns(1)` since the crawler and HTTP
   handlers share one `*sql.DB` — don't raise this without also handling
   concurrent-writer locking (WAL mode, busy_timeout, etc.). Only one

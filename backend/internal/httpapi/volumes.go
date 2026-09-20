@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/thoff/findo/backend/internal/crypto"
 	"github.com/thoff/findo/backend/internal/index"
@@ -24,16 +25,26 @@ type volumeInput struct {
 }
 
 // volumeStatus is a Volume enriched with what's only known at runtime:
-// live connection/crawl state and index size, not just configuration.
+// live connection/crawl state, change-notify health, and index size, not
+// just configuration.
 type volumeStatus struct {
 	index.Volume
-	Crawling            bool   `json:"crawling"`
-	Connected           bool   `json:"connected"`
-	FileCount           int    `json:"fileCount"`
-	DirCount            int    `json:"dirCount"`
-	LastCrawlStartedAt  string `json:"lastCrawlStartedAt,omitempty"`
-	LastCrawlFinishedAt string `json:"lastCrawlFinishedAt,omitempty"`
-	LastCrawlError      string `json:"lastCrawlError,omitempty"`
+	Crawling       bool   `json:"crawling"`
+	Connected      bool   `json:"connected"`
+	WatchConnected bool   `json:"watchConnected"`
+	LastEventAt    string `json:"lastEventAt,omitempty"`
+	ResyncCount    int    `json:"resyncCount"`
+	FileCount      int    `json:"fileCount"`
+	DirCount       int    `json:"dirCount"`
+
+	LastCrawlStartedAt    string `json:"lastCrawlStartedAt,omitempty"`
+	LastCrawlFinishedAt   string `json:"lastCrawlFinishedAt,omitempty"`
+	LastCrawlTrigger      string `json:"lastCrawlTrigger,omitempty"`
+	LastCrawlDurationMS   int64  `json:"lastCrawlDurationMs,omitempty"`
+	LastCrawlFilesSeen    int    `json:"lastCrawlFilesSeen,omitempty"`
+	LastCrawlFilesRemoved int64  `json:"lastCrawlFilesRemoved,omitempty"`
+	LastCrawlBytesIndexed int64  `json:"lastCrawlBytesIndexed,omitempty"`
+	LastCrawlError        string `json:"lastCrawlError,omitempty"`
 }
 
 func (s *Server) enrichVolume(v index.Volume) volumeStatus {
@@ -42,14 +53,25 @@ func (s *Server) enrichVolume(v index.Volume) volumeStatus {
 	if stats, err := s.idx.VolumeStats(v.ID); err == nil {
 		vs.FileCount, vs.DirCount = stats.FileCount, stats.DirCount
 	}
-	if cs, ok, err := s.idx.LatestCrawlRun(v.ID); err == nil && ok {
-		vs.LastCrawlStartedAt = cs.StartedAt
-		vs.LastCrawlFinishedAt = cs.FinishedAt
-		vs.LastCrawlError = cs.Error
+	if cr, ok, err := s.idx.LatestCrawlRun(v.ID); err == nil && ok {
+		vs.LastCrawlStartedAt = cr.StartedAt
+		vs.LastCrawlFinishedAt = cr.FinishedAt
+		vs.LastCrawlTrigger = cr.Trigger
+		vs.LastCrawlDurationMS = cr.DurationMS
+		vs.LastCrawlFilesSeen = cr.FilesSeen
+		vs.LastCrawlFilesRemoved = cr.FilesRemoved
+		vs.LastCrawlBytesIndexed = cr.BytesIndexed
+		vs.LastCrawlError = cr.Error
 	}
 	if rt := s.volumeRuntime(v.ID); rt != nil {
 		vs.Connected = true
 		vs.Crawling = rt.crawling.Load()
+		connected, lastEventAt, resyncCount := rt.watchHealth()
+		vs.WatchConnected = connected
+		vs.ResyncCount = resyncCount
+		if !lastEventAt.IsZero() {
+			vs.LastEventAt = lastEventAt.UTC().Format(time.RFC3339)
+		}
 	}
 
 	return vs

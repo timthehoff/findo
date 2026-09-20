@@ -61,7 +61,7 @@ func TestResyncSkipsWhenAlreadyCrawling(t *testing.T) {
 	rt := srv.volumeRuntime(volID)
 	rt.crawling.Store(true)
 
-	srv.resync(volID)
+	srv.resync(volID, "resync")
 
 	// resync should have declined to start a second crawl; the flag
 	// should still read exactly what we set (no crawl goroutine flipped
@@ -86,17 +86,36 @@ func TestWatchAppliesEventsAndResyncsOnError(t *testing.T) {
 		srv.Watch(ctx, volID)
 	}()
 
+	rt := srv.volumeRuntime(volID)
+	waitFor(t, func() bool {
+		connected, _, _ := rt.watchHealth()
+		return connected
+	})
+
 	smb.watchEvents <- smbclient.ChangeEvent{Kind: smbclient.ChangeUpserted, Path: "live.txt"}
 	waitFor(t, func() bool {
 		_, ok, _ := srv.idx.Stat(volID, "live.txt")
 		return ok
 	})
+	if _, lastEventAt, _ := rt.watchHealth(); lastEventAt.IsZero() {
+		t.Fatalf("expected lastEventAt to be recorded after an event")
+	}
 
 	smb.watchErrs <- smbclient.ErrNeedsResync
 	waitFor(t, func() bool {
 		_, ok, _ := srv.idx.Stat(volID, "from-resync.txt")
 		return ok
 	})
+	if _, _, resyncCount := rt.watchHealth(); resyncCount != 1 {
+		t.Fatalf("expected resyncCount 1, got %d", resyncCount)
+	}
+	run, ok, err := srv.idx.LatestCrawlRun(volID)
+	if err != nil || !ok {
+		t.Fatalf("LatestCrawlRun: ok=%v err=%v", ok, err)
+	}
+	if run.Trigger != "resync" {
+		t.Fatalf("expected the resync-triggered crawl to be recorded as such, got %q", run.Trigger)
+	}
 
 	cancel()
 	select {
@@ -104,6 +123,10 @@ func TestWatchAppliesEventsAndResyncsOnError(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatalf("Watch did not return after ctx cancellation")
 	}
+	waitFor(t, func() bool {
+		connected, _, _ := rt.watchHealth()
+		return !connected
+	})
 }
 
 func waitFor(t *testing.T, cond func() bool) {

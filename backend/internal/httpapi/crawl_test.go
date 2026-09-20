@@ -48,7 +48,7 @@ func TestCrawlIndexesDiscoveredFiles(t *testing.T) {
 	smb.set(smbclient.Entry{Path: "docs/a.txt", Name: "a.txt", Size: 10})
 	smb.set(smbclient.Entry{Path: "docs/b.txt", Name: "b.txt", Size: 20})
 
-	if err := srv.Crawl(volID); err != nil {
+	if err := srv.Crawl(volID, "manual"); err != nil {
 		t.Fatalf("Crawl: %v", err)
 	}
 
@@ -65,12 +65,12 @@ func TestCrawlSweepsFilesNoLongerOnTheShare(t *testing.T) {
 	srv, smb, volID := newTestServer(t)
 	smb.set(smbclient.Entry{Path: "keep.txt", Name: "keep.txt"})
 	smb.set(smbclient.Entry{Path: "gone.txt", Name: "gone.txt"})
-	if err := srv.Crawl(volID); err != nil {
+	if err := srv.Crawl(volID, "manual"); err != nil {
 		t.Fatalf("Crawl: %v", err)
 	}
 
 	smb.remove("gone.txt")
-	if err := srv.Crawl(volID); err != nil {
+	if err := srv.Crawl(volID, "manual"); err != nil {
 		t.Fatalf("second Crawl: %v", err)
 	}
 
@@ -85,7 +85,7 @@ func TestCrawlSweepsFilesNoLongerOnTheShare(t *testing.T) {
 func TestCrawlSkipsSweepOnWalkError(t *testing.T) {
 	srv, smb, volID := newTestServer(t)
 	smb.set(smbclient.Entry{Path: "keep.txt", Name: "keep.txt"})
-	if err := srv.Crawl(volID); err != nil {
+	if err := srv.Crawl(volID, "manual"); err != nil {
 		t.Fatalf("Crawl: %v", err)
 	}
 
@@ -96,10 +96,49 @@ func TestCrawlSkipsSweepOnWalkError(t *testing.T) {
 	smb.remove("keep.txt")
 	smb.walkErr = errFakeListing
 
-	if err := srv.Crawl(volID); err == nil {
+	if err := srv.Crawl(volID, "manual"); err == nil {
 		t.Fatalf("expected Crawl to surface the walk error")
 	}
 	if _, ok, _ := srv.idx.Stat(volID, "keep.txt"); !ok {
 		t.Fatalf("keep.txt should survive a crawl with a walk error, not be swept")
+	}
+}
+
+func TestCrawlRecordsTriggerAndCounts(t *testing.T) {
+	srv, smb, volID := newTestServer(t)
+	smb.set(smbclient.Entry{Path: "a.txt", Name: "a.txt", Size: 100})
+	smb.set(smbclient.Entry{Path: "b.txt", Name: "b.txt", Size: 50})
+	if err := srv.Crawl(volID, "periodic"); err != nil {
+		t.Fatalf("Crawl: %v", err)
+	}
+
+	run, ok, err := srv.idx.LatestCrawlRun(volID)
+	if err != nil || !ok {
+		t.Fatalf("LatestCrawlRun: ok=%v err=%v", ok, err)
+	}
+	if run.Trigger != "periodic" {
+		t.Fatalf("expected trigger %q, got %q", "periodic", run.Trigger)
+	}
+	if run.FilesSeen != 2 {
+		t.Fatalf("expected 2 files seen, got %d", run.FilesSeen)
+	}
+	if run.BytesIndexed != 150 {
+		t.Fatalf("expected 150 bytes indexed, got %d", run.BytesIndexed)
+	}
+	if run.FinishedAt == "" {
+		t.Fatalf("expected a finished timestamp")
+	}
+
+	// A second crawl that no longer sees b.txt should report it removed.
+	smb.remove("b.txt")
+	if err := srv.Crawl(volID, "manual"); err != nil {
+		t.Fatalf("second Crawl: %v", err)
+	}
+	run, ok, err = srv.idx.LatestCrawlRun(volID)
+	if err != nil || !ok {
+		t.Fatalf("LatestCrawlRun: ok=%v err=%v", ok, err)
+	}
+	if run.FilesRemoved != 1 {
+		t.Fatalf("expected 1 file removed, got %d", run.FilesRemoved)
 	}
 }

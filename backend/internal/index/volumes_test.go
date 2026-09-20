@@ -108,7 +108,7 @@ func TestDeleteVolumeCascadesFilesAndCrawlRuns(t *testing.T) {
 		t.Fatalf("CreateVolume: %v", err)
 	}
 
-	runID, err := idx.StartCrawlRun(v.ID)
+	runID, err := idx.StartCrawlRun(v.ID, "manual")
 	if err != nil {
 		t.Fatalf("StartCrawlRun: %v", err)
 	}

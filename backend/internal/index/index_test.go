@@ -23,7 +23,7 @@ func openTest(t *testing.T) *Index {
 
 func mustRun(t *testing.T, idx *Index) int64 {
 	t.Helper()
-	id, err := idx.StartCrawlRun(testVolume)
+	id, err := idx.StartCrawlRun(testVolume, "manual")
 	if err != nil {
 		t.Fatalf("StartCrawlRun: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestUpsertBatchInsertsAndUpdates(t *testing.T) {
 func TestUpsertBatchScopesPathsPerVolume(t *testing.T) {
 	idx := openTest(t)
 
-	run1, err := idx.StartCrawlRun(1)
+	run1, err := idx.StartCrawlRun(1, "manual")
 	if err != nil {
 		t.Fatalf("StartCrawlRun: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestUpsertBatchScopesPathsPerVolume(t *testing.T) {
 		t.Fatalf("UpsertBatch volume 1: %v", err)
 	}
 
-	run2, err := idx.StartCrawlRun(2)
+	run2, err := idx.StartCrawlRun(2, "manual")
 	if err != nil {
 		t.Fatalf("StartCrawlRun: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestSweepRemovesUnseenRows(t *testing.T) {
 	if err := idx.UpsertBatch([]File{files[0]}, run2); err != nil {
 		t.Fatalf("UpsertBatch run2: %v", err)
 	}
-	if err := idx.Sweep(testVolume, run2); err != nil {
+	if _, err := idx.Sweep(testVolume, run2); err != nil {
 		t.Fatalf("Sweep: %v", err)
 	}
 
@@ -245,7 +245,7 @@ func TestStreamUpsertKeepsDrainingAfterWriteError(t *testing.T) {
 func TestSearchAcrossAllVolumes(t *testing.T) {
 	idx := openTest(t)
 
-	run1, err := idx.StartCrawlRun(1)
+	run1, err := idx.StartCrawlRun(1, "manual")
 	if err != nil {
 		t.Fatalf("StartCrawlRun: %v", err)
 	}
@@ -253,7 +253,7 @@ func TestSearchAcrossAllVolumes(t *testing.T) {
 		t.Fatalf("UpsertBatch: %v", err)
 	}
 
-	run2, err := idx.StartCrawlRun(2)
+	run2, err := idx.StartCrawlRun(2, "manual")
 	if err != nil {
 		t.Fatalf("StartCrawlRun: %v", err)
 	}
@@ -275,5 +275,80 @@ func TestSearchAcrossAllVolumes(t *testing.T) {
 	}
 	if len(scoped) != 1 || scoped[0].VolumeID != 1 {
 		t.Fatalf("expected 1 result scoped to volume 1, got %+v", scoped)
+	}
+}
+
+func TestFinishCrawlRunRecordsResult(t *testing.T) {
+	idx := openTest(t)
+
+	runID, err := idx.StartCrawlRun(testVolume, "resync")
+	if err != nil {
+		t.Fatalf("StartCrawlRun: %v", err)
+	}
+	res := CrawlRunResult{FilesSeen: 3, FilesRemoved: 1, BytesIndexed: 4096, DurationMS: 1500}
+	if err := idx.FinishCrawlRun(runID, res); err != nil {
+		t.Fatalf("FinishCrawlRun: %v", err)
+	}
+
+	got, ok, err := idx.LatestCrawlRun(testVolume)
+	if err != nil || !ok {
+		t.Fatalf("LatestCrawlRun: ok=%v err=%v", ok, err)
+	}
+	if got.Trigger != "resync" || got.FilesSeen != 3 || got.FilesRemoved != 1 ||
+		got.BytesIndexed != 4096 || got.DurationMS != 1500 || got.FinishedAt == "" {
+		t.Fatalf("unexpected recorded run: %+v", got)
+	}
+	if got.Error != "" {
+		t.Fatalf("expected no error recorded, got %q", got.Error)
+	}
+}
+
+func TestFinishCrawlRunRecordsError(t *testing.T) {
+	idx := openTest(t)
+
+	runID, err := idx.StartCrawlRun(testVolume, "manual")
+	if err != nil {
+		t.Fatalf("StartCrawlRun: %v", err)
+	}
+	if err := idx.FinishCrawlRun(runID, CrawlRunResult{Error: fmt.Errorf("boom")}); err != nil {
+		t.Fatalf("FinishCrawlRun: %v", err)
+	}
+
+	got, ok, err := idx.LatestCrawlRun(testVolume)
+	if err != nil || !ok {
+		t.Fatalf("LatestCrawlRun: ok=%v err=%v", ok, err)
+	}
+	if got.Error != "boom" {
+		t.Fatalf("expected recorded error \"boom\", got %q", got.Error)
+	}
+}
+
+func TestCrawlRunsReturnsNewestFirst(t *testing.T) {
+	idx := openTest(t)
+
+	var lastID int64
+	for i, trigger := range []string{"startup", "manual", "periodic"} {
+		id, err := idx.StartCrawlRun(testVolume, trigger)
+		if err != nil {
+			t.Fatalf("StartCrawlRun: %v", err)
+		}
+		if err := idx.FinishCrawlRun(id, CrawlRunResult{FilesSeen: i}); err != nil {
+			t.Fatalf("FinishCrawlRun: %v", err)
+		}
+		lastID = id
+	}
+
+	runs, err := idx.CrawlRuns(testVolume, 10)
+	if err != nil {
+		t.Fatalf("CrawlRuns: %v", err)
+	}
+	if len(runs) != 3 {
+		t.Fatalf("expected 3 runs, got %d", len(runs))
+	}
+	if runs[0].ID != lastID || runs[0].Trigger != "periodic" {
+		t.Fatalf("expected the most recent run (periodic) first, got %+v", runs[0])
+	}
+	if runs[2].Trigger != "startup" {
+		t.Fatalf("expected the oldest run last, got %+v", runs[2])
 	}
 }

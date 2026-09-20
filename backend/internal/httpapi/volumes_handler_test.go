@@ -81,7 +81,7 @@ func TestCreateVolumeRejectsMissingFields(t *testing.T) {
 func TestListVolumesReportsLiveState(t *testing.T) {
 	srv, smb, volID := newTestServer(t)
 	smb.set(smbclient.Entry{Path: "a.txt", Name: "a.txt"})
-	if err := srv.Crawl(volID); err != nil {
+	if err := srv.Crawl(volID, "manual"); err != nil {
 		t.Fatalf("Crawl: %v", err)
 	}
 
@@ -108,12 +108,49 @@ func TestListVolumesReportsLiveState(t *testing.T) {
 	if v.LastCrawlStartedAt == "" {
 		t.Fatalf("expected a recorded crawl start time")
 	}
+	if v.LastCrawlTrigger != "manual" {
+		t.Fatalf("expected trigger %q, got %q", "manual", v.LastCrawlTrigger)
+	}
+	if v.LastCrawlFilesSeen != 1 {
+		t.Fatalf("expected lastCrawlFilesSeen 1, got %d", v.LastCrawlFilesSeen)
+	}
+}
+
+func TestCrawlRunsEndpointReturnsHistory(t *testing.T) {
+	srv, smb, volID := newTestServer(t)
+	smb.set(smbclient.Entry{Path: "a.txt", Name: "a.txt", Size: 42})
+	if err := srv.Crawl(volID, "manual"); err != nil {
+		t.Fatalf("Crawl: %v", err)
+	}
+	if err := srv.Crawl(volID, "periodic"); err != nil {
+		t.Fatalf("Crawl: %v", err)
+	}
+
+	rec := doJSON(t, srv, "GET", "/volumes/"+strconv.FormatInt(volID, 10)+"/crawl-runs", nil)
+	if rec.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Runs []index.CrawlRun `json:"runs"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(out.Runs) != 2 {
+		t.Fatalf("expected 2 runs, got %d", len(out.Runs))
+	}
+	if out.Runs[0].Trigger != "periodic" {
+		t.Fatalf("expected the newest run (periodic) first, got %+v", out.Runs[0])
+	}
+	if out.Runs[1].Trigger != "manual" {
+		t.Fatalf("expected the oldest run (manual) last, got %+v", out.Runs[1])
+	}
 }
 
 func TestDeleteVolumeStopsRuntimeAndData(t *testing.T) {
 	srv, smb, volID := newTestServer(t)
 	smb.set(smbclient.Entry{Path: "a.txt", Name: "a.txt"})
-	if err := srv.Crawl(volID); err != nil {
+	if err := srv.Crawl(volID, "manual"); err != nil {
 		t.Fatalf("Crawl: %v", err)
 	}
 
