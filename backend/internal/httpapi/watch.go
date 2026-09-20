@@ -20,6 +20,9 @@ func (s *Server) Watch(ctx context.Context, volumeID int64) {
 		return
 	}
 
+	rt.setWatchConnected(true)
+	defer rt.setWatchConnected(false)
+
 	events, errs := rt.smb.Watch(ctx, smbclient.DefaultChangeFilter)
 	for {
 		select {
@@ -27,13 +30,15 @@ func (s *Server) Watch(ctx context.Context, volumeID int64) {
 			if !ok {
 				return
 			}
+			rt.recordWatchEvent()
 			s.applyChangeEvent(volumeID, ev)
 		case err, ok := <-errs:
 			if !ok {
 				return
 			}
 			log.Printf("volume %d: change notify: %v", volumeID, err)
-			s.resync(volumeID)
+			rt.recordResync()
+			s.resync(volumeID, triggerResync)
 		case <-ctx.Done():
 			return
 		}
@@ -42,8 +47,10 @@ func (s *Server) Watch(ctx context.Context, volumeID int64) {
 
 // resync triggers a full crawl to recover from a gap in volumeID's notify
 // stream, sharing the same crawling guard as the manual /reindex endpoint.
-func (s *Server) resync(volumeID int64) {
-	if err := s.triggerCrawl(volumeID); err != nil {
+// trigger records why (triggerResync from Watch, triggerPeriodic from the
+// periodic safety net).
+func (s *Server) resync(volumeID int64, trigger string) {
+	if err := s.triggerCrawl(volumeID, trigger); err != nil {
 		// Already crawling (manual reindex or an earlier resync) — it'll
 		// reconcile the index against current state regardless of what
 		// triggered it, so this resync need is already covered.

@@ -56,6 +56,35 @@ type volumeRuntime struct {
 
 	wmu            sync.Mutex
 	watchConnected bool
+	lastEventAt    time.Time
+	resyncCount    int
+}
+
+func (rt *volumeRuntime) setWatchConnected(connected bool) {
+	rt.wmu.Lock()
+	rt.watchConnected = connected
+	rt.wmu.Unlock()
+}
+
+func (rt *volumeRuntime) recordWatchEvent() {
+	rt.wmu.Lock()
+	rt.lastEventAt = time.Now()
+	rt.wmu.Unlock()
+}
+
+func (rt *volumeRuntime) recordResync() {
+	rt.wmu.Lock()
+	rt.resyncCount++
+	rt.wmu.Unlock()
+}
+
+// watchHealth snapshots the change-notify listener's live state for the
+// dashboard: whether it's currently connected, when it last saw an event,
+// and how many times it's had to fall back to a full resync.
+func (rt *volumeRuntime) watchHealth() (connected bool, lastEventAt time.Time, resyncCount int) {
+	rt.wmu.Lock()
+	defer rt.wmu.Unlock()
+	return rt.watchConnected, rt.lastEventAt, rt.resyncCount
 }
 
 type Server struct {
@@ -95,6 +124,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /volumes/test", s.handleTestVolumeInput)
 	mux.HandleFunc("POST /volumes/{id}/test", s.handleTestVolume)
 	mux.HandleFunc("POST /volumes/{id}/reindex", s.handleReindex)
+	mux.HandleFunc("GET /volumes/{id}/crawl-runs", s.handleCrawlRuns)
 	mux.Handle("GET /", dashboard.Handler())
 	return logMiddleware(mux)
 }
@@ -206,7 +236,7 @@ func (s *Server) StartVolume(ctx context.Context, vol index.Volume) error {
 	go func() {
 		rt.crawling.Store(true)
 		log.Printf("volume %d (%s): running initial crawl...", vol.ID, vol.Name)
-		if err := s.Crawl(vol.ID); err != nil {
+		if err := s.Crawl(vol.ID, triggerStartup); err != nil {
 			log.Printf("volume %d (%s): initial crawl failed: %v", vol.ID, vol.Name, err)
 		}
 		rt.crawling.Store(false)
@@ -222,8 +252,8 @@ func (s *Server) StartVolume(ctx context.Context, vol index.Volume) error {
 var errCrawlInProgress = errors.New("a crawl is already in progress for this volume")
 
 // triggerCrawl starts a background crawl for volumeID unless one is
-// already running for it.
-func (s *Server) triggerCrawl(volumeID int64) error {
+// already running for it, recording trigger as why it started.
+func (s *Server) triggerCrawl(volumeID int64, trigger string) error {
 	rt := s.volumeRuntime(volumeID)
 	if rt == nil {
 		return fmt.Errorf("volume %d is not connected", volumeID)
@@ -233,7 +263,7 @@ func (s *Server) triggerCrawl(volumeID int64) error {
 	}
 	go func() {
 		defer rt.crawling.Store(false)
-		if err := s.Crawl(volumeID); err != nil {
+		if err := s.Crawl(volumeID, trigger); err != nil {
 			log.Printf("volume %d: crawl failed: %v", volumeID, err)
 		}
 	}()
@@ -361,7 +391,7 @@ func (s *Server) handleReindex(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid volume id")
 		return
 	}
-	if err := s.triggerCrawl(id); err != nil {
+	if err := s.triggerCrawl(id, triggerManual); err != nil {
 		if errors.Is(err, errCrawlInProgress) {
 			writeError(w, http.StatusConflict, err.Error())
 		} else {
@@ -370,4 +400,19 @@ func (s *Server) handleReindex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "crawl started"})
+}
+
+func (s *Server) handleCrawlRuns(w http.ResponseWriter, r *http.Request) {
+	id, err := parseVolumeID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid volume id")
+		return
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	runs, err := s.idx.CrawlRuns(id, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"runs": runs})
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sync/atomic"
 	"time"
 
 	"github.com/thoff/findo/backend/internal/index"
@@ -20,6 +21,16 @@ const crawlWriteBatch = 2000
 // reason yet for a deployment to want it tuned per volume.
 const periodicCrawlInterval = 24 * time.Hour
 
+// Crawl trigger reasons, recorded on each crawl_runs row so the dashboard
+// can distinguish a manual reindex from the periodic safety net or a
+// change-notify-driven resync.
+const (
+	triggerManual   = "manual"
+	triggerStartup  = "startup"
+	triggerPeriodic = "periodic"
+	triggerResync   = "resync"
+)
+
 // Crawl walks volumeID's SMB share and reconciles the index against what it
 // finds. Directory listings run concurrently (smbclient.Client.Walk) and
 // discovered files stream into SQLite via Index.StreamUpsert as they're
@@ -30,13 +41,14 @@ const periodicCrawlInterval = 24 * time.Hour
 // index isn't swept afterward — a sweep can't tell a genuine deletion from
 // a subtree we simply couldn't observe this run, so stale rows are left in
 // place rather than risking indexing data loss.
-func (s *Server) Crawl(volumeID int64) error {
+func (s *Server) Crawl(volumeID int64, trigger string) error {
 	rt := s.volumeRuntime(volumeID)
 	if rt == nil {
 		return fmt.Errorf("volume %d is not connected", volumeID)
 	}
 
-	runID, err := s.idx.StartCrawlRun(volumeID)
+	start := time.Now()
+	runID, err := s.idx.StartCrawlRun(volumeID, trigger)
 	if err != nil {
 		return err
 	}
@@ -50,7 +62,14 @@ func (s *Server) Crawl(volumeID int64) error {
 		written, writeErr = s.idx.StreamUpsert(entries, runID, crawlWriteBatch)
 	}()
 
+	// Walk's directory listings run concurrently across a worker pool, so
+	// fn is called from multiple goroutines at once — bytesIndexed needs an
+	// atomic add, not a plain sum.
+	var bytesIndexed atomic.Int64
 	walkErr := rt.smb.Walk("", func(e smbclient.Entry) {
+		if !e.IsDir {
+			bytesIndexed.Add(e.Size)
+		}
 		dir, ext := index.SplitPath(e.Path)
 		entries <- index.File{
 			VolumeID: volumeID,
@@ -67,16 +86,24 @@ func (s *Server) Crawl(volumeID int64) error {
 	<-writerDone
 
 	var runErr error
+	var filesRemoved int64
 	switch {
 	case writeErr != nil:
 		runErr = writeErr
 	case walkErr != nil:
 		runErr = walkErr
 	default:
-		runErr = s.idx.Sweep(volumeID, runID)
+		filesRemoved, runErr = s.idx.Sweep(volumeID, runID)
 	}
 
-	if err := s.idx.FinishCrawlRun(runID, runErr); err != nil {
+	result := index.CrawlRunResult{
+		Error:        runErr,
+		FilesSeen:    written,
+		FilesRemoved: filesRemoved,
+		BytesIndexed: bytesIndexed.Load(),
+		DurationMS:   time.Since(start).Milliseconds(),
+	}
+	if err := s.idx.FinishCrawlRun(runID, result); err != nil {
 		log.Printf("volume %d: record crawl run finish: %v", volumeID, err)
 	}
 
@@ -98,7 +125,7 @@ func (s *Server) PeriodicCrawl(ctx context.Context, volumeID int64, interval tim
 	for {
 		select {
 		case <-ticker.C:
-			s.resync(volumeID)
+			s.resync(volumeID, triggerPeriodic)
 		case <-ctx.Done():
 			return
 		}

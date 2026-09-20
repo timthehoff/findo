@@ -91,11 +91,16 @@ func (idx *Index) migrate() error {
 		CREATE INDEX IF NOT EXISTS idx_files_volume_name ON files(volume_id, name);
 
 		CREATE TABLE IF NOT EXISTS crawl_runs (
-			id          INTEGER PRIMARY KEY AUTOINCREMENT,
-			volume_id   INTEGER NOT NULL,
-			started_at  TEXT NOT NULL,
-			finished_at TEXT,
-			error       TEXT
+			id            INTEGER PRIMARY KEY AUTOINCREMENT,
+			volume_id     INTEGER NOT NULL,
+			trigger       TEXT NOT NULL DEFAULT 'manual',
+			started_at    TEXT NOT NULL,
+			finished_at   TEXT,
+			duration_ms   INTEGER,
+			error         TEXT,
+			files_seen    INTEGER NOT NULL DEFAULT 0,
+			files_removed INTEGER NOT NULL DEFAULT 0,
+			bytes_indexed INTEGER NOT NULL DEFAULT 0
 		);
 		CREATE INDEX IF NOT EXISTS idx_crawl_runs_volume ON crawl_runs(volume_id, id DESC);
 	`)
@@ -190,10 +195,14 @@ func (idx *Index) Upsert(f File, runID int64) error {
 // Sweep deletes every file in volumeID not stamped with runID — the
 // mark-and-sweep half of a reconciling crawl: anything not seen during run
 // runID no longer exists on the NAS (or wasn't reachable this run) and is
-// dropped from the index.
-func (idx *Index) Sweep(volumeID, runID int64) error {
-	_, err := idx.db.Exec(`DELETE FROM files WHERE volume_id = ? AND last_seen_run != ?`, volumeID, runID)
-	return err
+// dropped from the index. It returns how many rows were removed, for crawl
+// run reporting.
+func (idx *Index) Sweep(volumeID, runID int64) (int64, error) {
+	res, err := idx.db.Exec(`DELETE FROM files WHERE volume_id = ? AND last_seen_run != ?`, volumeID, runID)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 // Delete removes a single file by path, e.g. from a live change-notify
@@ -210,15 +219,17 @@ func (idx *Index) Reconcile(volumeID int64, files []File, runID int64) error {
 	if err := idx.UpsertBatch(files, runID); err != nil {
 		return err
 	}
-	return idx.Sweep(volumeID, runID)
+	_, err := idx.Sweep(volumeID, runID)
+	return err
 }
 
 // StartCrawlRun records the start of a crawl for volumeID and returns its
-// run id.
-func (idx *Index) StartCrawlRun(volumeID int64) (int64, error) {
+// run id. trigger records why the crawl started (manual, startup, periodic,
+// or resync) for the crawl history shown in the dashboard.
+func (idx *Index) StartCrawlRun(volumeID int64, trigger string) (int64, error) {
 	res, err := idx.db.Exec(
-		`INSERT INTO crawl_runs (volume_id, started_at) VALUES (?, ?)`,
-		volumeID, time.Now().UTC().Format(time.RFC3339),
+		`INSERT INTO crawl_runs (volume_id, trigger, started_at) VALUES (?, ?, ?)`,
+		volumeID, trigger, time.Now().UTC().Format(time.RFC3339),
 	)
 	if err != nil {
 		return 0, err
@@ -226,41 +237,98 @@ func (idx *Index) StartCrawlRun(volumeID int64) (int64, error) {
 	return res.LastInsertId()
 }
 
-// FinishCrawlRun records completion (crawlErr == nil for success).
-func (idx *Index) FinishCrawlRun(id int64, crawlErr error) error {
+// CrawlRunResult is what Crawl learns about its own run, recorded by
+// FinishCrawlRun once the crawl completes (crawlErr == nil for success).
+type CrawlRunResult struct {
+	Error        error
+	FilesSeen    int
+	FilesRemoved int64
+	BytesIndexed int64
+	DurationMS   int64
+}
+
+// FinishCrawlRun records how a crawl run completed.
+func (idx *Index) FinishCrawlRun(id int64, res CrawlRunResult) error {
 	errMsg := ""
-	if crawlErr != nil {
-		errMsg = crawlErr.Error()
+	if res.Error != nil {
+		errMsg = res.Error.Error()
 	}
 	_, err := idx.db.Exec(
-		`UPDATE crawl_runs SET finished_at = ?, error = ? WHERE id = ?`,
-		time.Now().UTC().Format(time.RFC3339), nullIfEmpty(errMsg), id,
+		`UPDATE crawl_runs SET finished_at = ?, duration_ms = ?, error = ?,
+		 files_seen = ?, files_removed = ?, bytes_indexed = ? WHERE id = ?`,
+		time.Now().UTC().Format(time.RFC3339), res.DurationMS, nullIfEmpty(errMsg),
+		res.FilesSeen, res.FilesRemoved, res.BytesIndexed, id,
 	)
 	return err
 }
 
-// CrawlStatus summarizes one volume's most recent crawl run.
-type CrawlStatus struct {
-	StartedAt  string `json:"startedAt"`
-	FinishedAt string `json:"finishedAt,omitempty"`
-	Error      string `json:"error,omitempty"`
+// CrawlRun is one recorded crawl run, as shown in the dashboard's crawl
+// history.
+type CrawlRun struct {
+	ID           int64  `json:"id"`
+	VolumeID     int64  `json:"volumeId"`
+	Trigger      string `json:"trigger"`
+	StartedAt    string `json:"startedAt"`
+	FinishedAt   string `json:"finishedAt,omitempty"`
+	DurationMS   int64  `json:"durationMs,omitempty"`
+	Error        string `json:"error,omitempty"`
+	FilesSeen    int    `json:"filesSeen"`
+	FilesRemoved int64  `json:"filesRemoved"`
+	BytesIndexed int64  `json:"bytesIndexed"`
 }
 
+const crawlRunColumns = `id, volume_id, trigger, started_at, COALESCE(finished_at,''), COALESCE(duration_ms,0), COALESCE(error,''), files_seen, files_removed, bytes_indexed`
+
 // LatestCrawlRun returns volumeID's most recent crawl run, if it has one.
-func (idx *Index) LatestCrawlRun(volumeID int64) (CrawlStatus, bool, error) {
+func (idx *Index) LatestCrawlRun(volumeID int64) (CrawlRun, bool, error) {
 	row := idx.db.QueryRow(
-		`SELECT started_at, COALESCE(finished_at,''), COALESCE(error,'') FROM crawl_runs
-		 WHERE volume_id = ? ORDER BY id DESC LIMIT 1`,
+		`SELECT `+crawlRunColumns+` FROM crawl_runs WHERE volume_id = ? ORDER BY id DESC LIMIT 1`,
 		volumeID,
 	)
-	var cs CrawlStatus
-	if err := row.Scan(&cs.StartedAt, &cs.FinishedAt, &cs.Error); err != nil {
+	cr, err := scanCrawlRun(row)
+	if err != nil {
 		if err == sql.ErrNoRows {
-			return CrawlStatus{}, false, nil
+			return CrawlRun{}, false, nil
 		}
-		return CrawlStatus{}, false, err
+		return CrawlRun{}, false, err
 	}
-	return cs, true, nil
+	return cr, true, nil
+}
+
+// CrawlRuns returns volumeID's most recent crawl runs, newest first.
+func (idx *Index) CrawlRuns(volumeID int64, limit int) ([]CrawlRun, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	rows, err := idx.db.Query(
+		`SELECT `+crawlRunColumns+` FROM crawl_runs WHERE volume_id = ? ORDER BY id DESC LIMIT ?`,
+		volumeID, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []CrawlRun{}
+	for rows.Next() {
+		cr, err := scanCrawlRun(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, cr)
+	}
+	return out, rows.Err()
+}
+
+func scanCrawlRun(row rowScanner) (CrawlRun, error) {
+	var cr CrawlRun
+	if err := row.Scan(
+		&cr.ID, &cr.VolumeID, &cr.Trigger, &cr.StartedAt, &cr.FinishedAt, &cr.DurationMS,
+		&cr.Error, &cr.FilesSeen, &cr.FilesRemoved, &cr.BytesIndexed,
+	); err != nil {
+		return CrawlRun{}, err
+	}
+	return cr, nil
 }
 
 func nullIfEmpty(s string) interface{} {

@@ -56,9 +56,16 @@ Only **Milestone 1** of the backend is built:
 - Multiple SMB volumes can be configured at runtime — no restart required.
   Credentials are encrypted at rest (AES-256-GCM under a server-wide master
   key) and never round-trip back out of the API once set.
+- Every crawl is recorded with why it ran (manual reindex, startup,
+  the periodic safety net, or a change-notify-triggered resync), how long
+  it took, and how many files/bytes it saw or removed — visible per volume
+  in the dashboard and via `GET /volumes/{id}/crawl-runs`. Each volume's
+  change-notify listener also reports its own live connected/last-event/
+  resync-count state.
 - HTTP API: `GET/POST /volumes`, `PUT/DELETE /volumes/{id}`,
   `POST /volumes/{id}/test` (or `POST /volumes/test` before saving),
-  `POST /volumes/{id}/reindex`, `GET /files` (list by dir, `?volume=`),
+  `POST /volumes/{id}/reindex`, `GET /volumes/{id}/crawl-runs`,
+  `GET /files` (list by dir, `?volume=`),
   `GET /search` (name search, optionally scoped to `?volume=`),
   `GET /files/content` (Range-aware streamed read via `http.ServeContent`,
   `?volume=`), `GET /health`, `GET /stats`.
