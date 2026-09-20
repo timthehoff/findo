@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
@@ -14,6 +15,11 @@ import (
 	"github.com/thoff/findo/backend/internal/index"
 	"github.com/thoff/findo/backend/internal/smbclient"
 )
+
+// periodicCrawlInterval is the safety-net full-crawl cadence alongside the
+// change-notify listener — not config-driven, since there's no reason yet
+// for a deployment to want it tuned.
+const periodicCrawlInterval = 24 * time.Hour
 
 func main() {
 	cfg, err := config.Load(".env")
@@ -34,13 +40,19 @@ func main() {
 	defer smb.Close()
 
 	srv := httpapi.NewServer(smb, idx)
+	ctx := context.Background()
 
 	go func() {
 		log.Println("running initial crawl...")
 		if err := srv.Crawl(); err != nil {
 			log.Printf("initial crawl failed: %v", err)
 		}
+
+		log.Println("starting change-notify listener...")
+		go srv.Watch(ctx)
 	}()
+
+	go srv.PeriodicCrawl(ctx, periodicCrawlInterval)
 
 	log.Printf("findo-server listening on %s", cfg.HTTPAddr)
 	if err := http.ListenAndServe(cfg.HTTPAddr, srv.Routes()); err != nil {
