@@ -426,6 +426,59 @@ func (idx *Index) VolumeStats(volumeID int64) (Stats, error) {
 	return s, nil
 }
 
+// ExtStat is one extension's aggregate footprint within a volume, used for
+// the dashboard's storage-by-file-type chart.
+type ExtStat struct {
+	Ext       string `json:"ext"`
+	Count     int    `json:"count"`
+	TotalSize int64  `json:"totalSize"`
+}
+
+// ExtensionBreakdown returns volumeID's file extensions ranked by total
+// size, largest first. Extensionless files are grouped under "(none)".
+func (idx *Index) ExtensionBreakdown(volumeID int64, limit int) ([]ExtStat, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 8
+	}
+	rows, err := idx.db.Query(
+		`SELECT CASE WHEN ext = '' THEN '(none)' ELSE ext END, COUNT(*), COALESCE(SUM(size), 0)
+		 FROM files WHERE volume_id = ? AND is_dir = 0
+		 GROUP BY ext ORDER BY SUM(size) DESC LIMIT ?`,
+		volumeID, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []ExtStat{}
+	for rows.Next() {
+		var s ExtStat
+		if err := rows.Scan(&s.Ext, &s.Count, &s.TotalSize); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+// LargestFiles returns volumeID's largest files, biggest first.
+func (idx *Index) LargestFiles(volumeID int64, limit int) ([]File, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 8
+	}
+	rows, err := idx.db.Query(
+		`SELECT volume_id, path, name, dir, ext, is_dir, size, mod_time FROM files
+		 WHERE volume_id = ? AND is_dir = 0 ORDER BY size DESC LIMIT ?`,
+		volumeID, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanFiles(rows)
+}
+
 func scanFiles(rows *sql.Rows) ([]File, error) {
 	var out []File
 	for rows.Next() {

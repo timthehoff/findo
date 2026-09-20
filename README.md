@@ -65,13 +65,16 @@ Only **Milestone 1** of the backend is built:
 - HTTP API: `GET/POST /volumes`, `PUT/DELETE /volumes/{id}`,
   `POST /volumes/{id}/test` (or `POST /volumes/test` before saving),
   `POST /volumes/{id}/reindex`, `GET /volumes/{id}/crawl-runs`,
-  `GET /files` (list by dir, `?volume=`),
-  `GET /search` (name search, optionally scoped to `?volume=`),
-  `GET /files/content` (Range-aware streamed read via `http.ServeContent`,
-  `?volume=`), `GET /health`, `GET /stats`.
+  `GET /volumes/{id}/insights` (storage by file extension + largest
+  files, for the dashboard's small charts), `GET /files` (list by dir,
+  `?volume=`), `GET /search` (name search, optionally scoped to
+  `?volume=`), `GET /files/content` (Range-aware streamed read via
+  `http.ServeContent`, `?volume=`), `GET /health`, `GET /stats`.
 - A minimal built-in dashboard: `GET /` for configuring volumes and crawl/
-  watch monitoring, `GET /search.html` for live search and breadcrumb
-  directory browsing.
+  watch monitoring (plus a per-volume storage/largest-files breakdown),
+  `GET /search.html` for live search and breadcrumb directory browsing.
+  Supports an explicit light/dark theme toggle (on top of following the OS
+  setting by default) and toast notifications for action feedback.
 
 Not yet built: file write/save-back, conflict detection (version/mtime
 tracking beyond what's indexed), the iOS app in its entirety (File Provider

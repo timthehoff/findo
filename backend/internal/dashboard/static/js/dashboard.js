@@ -1,13 +1,18 @@
 import { escapeHTML, humanSize, humanDuration, timeAgo } from './util.js';
 import { getJSON, postJSON, putJSON, deleteJSON } from './api.js';
+import { initTheme } from './theme.js';
+import { toast } from './toast.js';
+
+initTheme();
 
 const volumeDialog = document.getElementById('volumeDialog');
 const volumeForm = document.getElementById('volumeForm');
 const testResult = document.getElementById('testResult');
 
-// Volume ids whose crawl history panel is currently expanded — re-rendered
-// on every refresh so the panel stays live while open.
+// Volume ids whose crawl history / insights panel is currently expanded —
+// re-rendered on every refresh so an open panel stays live.
 const expandedHistory = new Set();
+const expandedInsights = new Set();
 
 async function refreshStats() {
   const cards = document.getElementById('cards');
@@ -21,7 +26,7 @@ async function refreshStats() {
       <div class="card"><div class="label">Volumes online</div><div class="value">${(health.volumes || []).filter(v => v.ok).length} / ${(health.volumes || []).length}</div></div>
     `;
   } catch (e) {
-    cards.textContent = 'failed to load health/stats: ' + e.message;
+    cards.textContent = 'Could not fetch stats: ' + e.message;
   }
 }
 
@@ -41,8 +46,11 @@ async function refreshVolumes() {
     for (const id of expandedHistory) {
       loadCrawlHistory(id);
     }
+    for (const id of expandedInsights) {
+      loadInsights(id);
+    }
   } catch (e) {
-    container.textContent = 'failed to load volumes: ' + e.message;
+    container.textContent = 'Could not fetch volumes: ' + e.message;
   }
 }
 
@@ -79,7 +87,8 @@ function renderVolumeCard(v) {
     if (v.resyncCount) watchLine += `, ${v.resyncCount} resync${v.resyncCount === 1 ? '' : 's'}`;
   }
 
-  const expanded = expandedHistory.has(String(v.id));
+  const historyExpanded = expandedHistory.has(String(v.id));
+  const insightsExpanded = expandedInsights.has(String(v.id));
 
   return `
     <div class="volume" data-id="${v.id}">
@@ -90,7 +99,8 @@ function renderVolumeCard(v) {
         </div>
         <div class="volume-actions">
           <button class="small" data-action="reindex" data-id="${v.id}" ${v.crawling ? 'disabled' : ''}>Reindex</button>
-          <button class="small" data-action="history" data-id="${v.id}">${expanded ? 'Hide history' : 'History'}</button>
+          <button class="small" data-action="history" data-id="${v.id}">${historyExpanded ? 'Hide history' : 'History'}</button>
+          <button class="small" data-action="insights" data-id="${v.id}">${insightsExpanded ? 'Hide insights' : 'Insights'}</button>
           <button class="small" data-action="test" data-id="${v.id}">Test</button>
           <button class="small" data-action="edit" data-id="${v.id}">Edit</button>
           <button class="small danger" data-action="delete" data-id="${v.id}">Delete</button>
@@ -104,7 +114,8 @@ function renderVolumeCard(v) {
       <div class="volume-meta">${lastCrawlLine}</div>
       ${watchLine ? `<div class="volume-meta">${watchLine}</div>` : ''}
       ${errLine}${testErrLine}
-      ${expanded ? `<div class="history" id="history-${v.id}">loading…</div>` : ''}
+      ${historyExpanded ? `<div class="history" id="history-${v.id}">Fetching history…</div>` : ''}
+      ${insightsExpanded ? `<div class="insights" id="insights-${v.id}">Fetching insights…</div>` : ''}
     </div>
   `;
 }
@@ -138,36 +149,97 @@ async function loadCrawlHistory(id) {
       </table>
     `;
   } catch (e) {
-    el.textContent = 'failed to load crawl history: ' + e.message;
+    el.textContent = 'Could not fetch crawl history: ' + e.message;
+  }
+}
+
+async function loadInsights(id) {
+  const el = document.getElementById(`insights-${id}`);
+  if (!el) return;
+  try {
+    const body = await getJSON(`/volumes/${id}/insights?limit=8`);
+    const extensions = body.extensions || [];
+    const largestFiles = body.largestFiles || [];
+
+    if (extensions.length === 0) {
+      el.innerHTML = '<div class="insights-empty">Nothing indexed yet — nose around after the next crawl.</div>';
+      return;
+    }
+
+    const maxSize = Math.max(...extensions.map(e => e.totalSize));
+    const barChart = extensions.map(e => `
+      <div class="bar-row">
+        <div class="bar-label" title="${escapeHTML(e.ext)}">${escapeHTML(e.ext)}</div>
+        <div class="bar-track"><div class="bar-fill" style="width:${maxSize ? (e.totalSize / maxSize * 100) : 0}%"></div></div>
+        <div class="bar-value">${humanSize(e.totalSize)}</div>
+      </div>
+    `).join('');
+
+    const largestList = largestFiles.length === 0 ? '' : `
+      <h4>Largest files</h4>
+      <table>
+        <tbody>
+          ${largestFiles.map(f => `
+            <tr><td>${escapeHTML(f.path)}</td><td class="bar-value">${humanSize(f.size)}</td></tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+
+    el.innerHTML = `
+      <h4>Storage by file type</h4>
+      <div class="bar-chart">${barChart}</div>
+      ${largestList}
+    `;
+  } catch (e) {
+    el.textContent = 'Could not fetch insights: ' + e.message;
   }
 }
 
 async function handleVolumeAction(action, id, volumes) {
   if (action === 'reindex') {
-    await postJSON(`/volumes/${id}/reindex`).catch(() => {});
+    try {
+      await postJSON(`/volumes/${id}/reindex`);
+      toast('Crawl started.', 'success');
+    } catch (e) {
+      toast('Could not start crawl: ' + e.message, 'error');
+    }
     refreshVolumes();
   } else if (action === 'history') {
-    if (expandedHistory.has(String(id))) {
-      expandedHistory.delete(String(id));
-    } else {
-      expandedHistory.add(String(id));
-    }
+    toggleExpanded(expandedHistory, id);
+    refreshVolumes();
+  } else if (action === 'insights') {
+    toggleExpanded(expandedInsights, id);
     refreshVolumes();
   } else if (action === 'test') {
     try {
       const body = await postJSON(`/volumes/${id}/test`);
-      alert(body.ok ? 'Connection OK' : 'Connection failed: ' + body.error);
+      toast(body.ok ? 'Connection OK.' : 'Connection failed: ' + body.error, body.ok ? 'success' : 'error');
     } catch (e) {
-      alert('Test failed: ' + e.message);
+      toast('Test failed: ' + e.message, 'error');
     }
     refreshVolumes();
   } else if (action === 'edit') {
     openVolumeDialog(volumes.find(v => String(v.id) === String(id)));
   } else if (action === 'delete') {
     if (!confirm('Delete this volume and everything indexed under it? This cannot be undone.')) return;
-    await deleteJSON(`/volumes/${id}`).catch(() => {});
+    try {
+      await deleteJSON(`/volumes/${id}`);
+      toast('Volume deleted.', 'success');
+    } catch (e) {
+      toast('Could not delete volume: ' + e.message, 'error');
+    }
     refreshVolumes();
     refreshStats();
+  }
+}
+
+function toggleExpanded(set, id) {
+  const key = String(id);
+  if (set.has(key)) {
+    set.delete(key);
+  } else {
+    set.add(key);
   }
 }
 
@@ -234,6 +306,7 @@ volumeForm.addEventListener('submit', async (ev) => {
     return;
   }
   volumeDialog.close();
+  toast(id ? 'Volume updated.' : 'Volume added — fetching its files now.', 'success');
   refreshVolumes();
   refreshStats();
 });

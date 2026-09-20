@@ -352,3 +352,62 @@ func TestCrawlRunsReturnsNewestFirst(t *testing.T) {
 		t.Fatalf("expected the oldest run last, got %+v", runs[2])
 	}
 }
+
+func TestExtensionBreakdownRanksByTotalSize(t *testing.T) {
+	idx := openTest(t)
+	run := mustRun(t, idx)
+
+	files := []File{
+		{VolumeID: testVolume, Path: "a.pdf", Name: "a.pdf", Ext: "pdf", Size: 100},
+		{VolumeID: testVolume, Path: "b.pdf", Name: "b.pdf", Ext: "pdf", Size: 50},
+		{VolumeID: testVolume, Path: "c.jpg", Name: "c.jpg", Ext: "jpg", Size: 300},
+		{VolumeID: testVolume, Path: "noext", Name: "noext", Ext: "", Size: 10},
+		{VolumeID: testVolume, Path: "dir", Name: "dir", IsDir: true, Size: 0},
+	}
+	if err := idx.UpsertBatch(files, run); err != nil {
+		t.Fatalf("UpsertBatch: %v", err)
+	}
+
+	stats, err := idx.ExtensionBreakdown(testVolume, 10)
+	if err != nil {
+		t.Fatalf("ExtensionBreakdown: %v", err)
+	}
+	if len(stats) != 3 {
+		t.Fatalf("expected 3 extension groups (dirs excluded), got %d: %+v", len(stats), stats)
+	}
+	if stats[0].Ext != "jpg" || stats[0].TotalSize != 300 || stats[0].Count != 1 {
+		t.Fatalf("expected jpg first with total 300, got %+v", stats[0])
+	}
+	if stats[1].Ext != "pdf" || stats[1].TotalSize != 150 || stats[1].Count != 2 {
+		t.Fatalf("expected pdf second with total 150 across 2 files, got %+v", stats[1])
+	}
+	if stats[2].Ext != "(none)" || stats[2].TotalSize != 10 {
+		t.Fatalf("expected extensionless files grouped under (none), got %+v", stats[2])
+	}
+}
+
+func TestLargestFilesOrdersBySizeDescending(t *testing.T) {
+	idx := openTest(t)
+	run := mustRun(t, idx)
+
+	files := []File{
+		{VolumeID: testVolume, Path: "small.txt", Name: "small.txt", Size: 10},
+		{VolumeID: testVolume, Path: "big.mov", Name: "big.mov", Size: 9000},
+		{VolumeID: testVolume, Path: "medium.pdf", Name: "medium.pdf", Size: 500},
+		{VolumeID: testVolume, Path: "dir", Name: "dir", IsDir: true, Size: 999999},
+	}
+	if err := idx.UpsertBatch(files, run); err != nil {
+		t.Fatalf("UpsertBatch: %v", err)
+	}
+
+	largest, err := idx.LargestFiles(testVolume, 2)
+	if err != nil {
+		t.Fatalf("LargestFiles: %v", err)
+	}
+	if len(largest) != 2 {
+		t.Fatalf("expected 2 results (limit applied), got %d", len(largest))
+	}
+	if largest[0].Name != "big.mov" || largest[1].Name != "medium.pdf" {
+		t.Fatalf("expected big.mov then medium.pdf, got %+v", largest)
+	}
+}

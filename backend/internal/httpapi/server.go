@@ -125,6 +125,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /volumes/{id}/test", s.handleTestVolume)
 	mux.HandleFunc("POST /volumes/{id}/reindex", s.handleReindex)
 	mux.HandleFunc("GET /volumes/{id}/crawl-runs", s.handleCrawlRuns)
+	mux.HandleFunc("GET /volumes/{id}/insights", s.handleVolumeInsights)
 	mux.Handle("GET /", dashboard.Handler())
 	return logMiddleware(mux)
 }
@@ -415,4 +416,28 @@ func (s *Server) handleCrawlRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"runs": runs})
+}
+
+// handleVolumeInsights serves the data behind the dashboard's small
+// per-volume charts: storage broken down by file extension, and the
+// largest individual files.
+func (s *Server) handleVolumeInsights(w http.ResponseWriter, r *http.Request) {
+	id, err := parseVolumeID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid volume id")
+		return
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+
+	extensions, err := s.idx.ExtensionBreakdown(id, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	largestFiles, err := s.idx.LargestFiles(id, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"extensions": extensions, "largestFiles": largestFiles})
 }
