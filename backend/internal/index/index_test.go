@@ -6,6 +6,11 @@ import (
 	"testing"
 )
 
+// testVolume is used as the volume id throughout these tests. The files/
+// crawl_runs tables don't enforce a foreign key to volumes, so tests that
+// only exercise file indexing don't need a real volumes row.
+const testVolume = int64(1)
+
 func openTest(t *testing.T) *Index {
 	t.Helper()
 	idx, err := Open(filepath.Join(t.TempDir(), "test.db"))
@@ -18,7 +23,7 @@ func openTest(t *testing.T) *Index {
 
 func mustRun(t *testing.T, idx *Index) int64 {
 	t.Helper()
-	id, err := idx.StartCrawlRun()
+	id, err := idx.StartCrawlRun(testVolume)
 	if err != nil {
 		t.Fatalf("StartCrawlRun: %v", err)
 	}
@@ -29,12 +34,12 @@ func TestUpsertBatchInsertsAndUpdates(t *testing.T) {
 	idx := openTest(t)
 
 	run1 := mustRun(t, idx)
-	f := File{Path: "docs/budget.xlsx", Name: "budget.xlsx", Dir: "docs", Ext: "xlsx", Size: 100, ModTime: 1000}
+	f := File{VolumeID: testVolume, Path: "docs/budget.xlsx", Name: "budget.xlsx", Dir: "docs", Ext: "xlsx", Size: 100, ModTime: 1000}
 	if err := idx.UpsertBatch([]File{f}, run1); err != nil {
 		t.Fatalf("UpsertBatch: %v", err)
 	}
 
-	got, ok, err := idx.Stat("docs/budget.xlsx")
+	got, ok, err := idx.Stat(testVolume, "docs/budget.xlsx")
 	if err != nil || !ok {
 		t.Fatalf("Stat after insert: ok=%v err=%v", ok, err)
 	}
@@ -51,7 +56,7 @@ func TestUpsertBatchInsertsAndUpdates(t *testing.T) {
 		t.Fatalf("UpsertBatch update: %v", err)
 	}
 
-	got, ok, err = idx.Stat("docs/budget.xlsx")
+	got, ok, err = idx.Stat(testVolume, "docs/budget.xlsx")
 	if err != nil || !ok {
 		t.Fatalf("Stat after update: ok=%v err=%v", ok, err)
 	}
@@ -59,7 +64,7 @@ func TestUpsertBatchInsertsAndUpdates(t *testing.T) {
 		t.Fatalf("update not applied: %+v", got)
 	}
 
-	all, err := idx.Search("budget", 10)
+	all, err := idx.Search(testVolume, "budget", 10)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -68,13 +73,49 @@ func TestUpsertBatchInsertsAndUpdates(t *testing.T) {
 	}
 }
 
+func TestUpsertBatchScopesPathsPerVolume(t *testing.T) {
+	idx := openTest(t)
+
+	run1, err := idx.StartCrawlRun(1)
+	if err != nil {
+		t.Fatalf("StartCrawlRun: %v", err)
+	}
+	if err := idx.UpsertBatch([]File{{VolumeID: 1, Path: "a.txt", Name: "a.txt", Size: 10}}, run1); err != nil {
+		t.Fatalf("UpsertBatch volume 1: %v", err)
+	}
+
+	run2, err := idx.StartCrawlRun(2)
+	if err != nil {
+		t.Fatalf("StartCrawlRun: %v", err)
+	}
+	if err := idx.UpsertBatch([]File{{VolumeID: 2, Path: "a.txt", Name: "a.txt", Size: 99}}, run2); err != nil {
+		t.Fatalf("UpsertBatch volume 2: %v", err)
+	}
+
+	f1, ok, err := idx.Stat(1, "a.txt")
+	if err != nil || !ok {
+		t.Fatalf("Stat volume 1: ok=%v err=%v", ok, err)
+	}
+	if f1.Size != 10 {
+		t.Fatalf("volume 1's a.txt should be untouched by volume 2's upsert, got size %d", f1.Size)
+	}
+
+	f2, ok, err := idx.Stat(2, "a.txt")
+	if err != nil || !ok {
+		t.Fatalf("Stat volume 2: ok=%v err=%v", ok, err)
+	}
+	if f2.Size != 99 {
+		t.Fatalf("expected volume 2's a.txt size 99, got %d", f2.Size)
+	}
+}
+
 func TestSweepRemovesUnseenRows(t *testing.T) {
 	idx := openTest(t)
 
 	run1 := mustRun(t, idx)
 	files := []File{
-		{Path: "a.txt", Name: "a.txt", Dir: "", Ext: "txt"},
-		{Path: "b.txt", Name: "b.txt", Dir: "", Ext: "txt"},
+		{VolumeID: testVolume, Path: "a.txt", Name: "a.txt", Dir: "", Ext: "txt"},
+		{VolumeID: testVolume, Path: "b.txt", Name: "b.txt", Dir: "", Ext: "txt"},
 	}
 	if err := idx.UpsertBatch(files, run1); err != nil {
 		t.Fatalf("UpsertBatch: %v", err)
@@ -85,14 +126,14 @@ func TestSweepRemovesUnseenRows(t *testing.T) {
 	if err := idx.UpsertBatch([]File{files[0]}, run2); err != nil {
 		t.Fatalf("UpsertBatch run2: %v", err)
 	}
-	if err := idx.Sweep(run2); err != nil {
+	if err := idx.Sweep(testVolume, run2); err != nil {
 		t.Fatalf("Sweep: %v", err)
 	}
 
-	if _, ok, err := idx.Stat("a.txt"); err != nil || !ok {
+	if _, ok, err := idx.Stat(testVolume, "a.txt"); err != nil || !ok {
 		t.Fatalf("a.txt should survive the sweep: ok=%v err=%v", ok, err)
 	}
-	if _, ok, err := idx.Stat("b.txt"); err != nil || ok {
+	if _, ok, err := idx.Stat(testVolume, "b.txt"); err != nil || ok {
 		t.Fatalf("b.txt should have been swept: ok=%v err=%v", ok, err)
 	}
 }
@@ -102,29 +143,29 @@ func TestReconcileEndToEnd(t *testing.T) {
 
 	run1 := mustRun(t, idx)
 	initial := []File{
-		{Path: "keep.txt", Name: "keep.txt", Dir: "", Ext: "txt", Size: 1},
-		{Path: "gone.txt", Name: "gone.txt", Dir: "", Ext: "txt", Size: 1},
+		{VolumeID: testVolume, Path: "keep.txt", Name: "keep.txt", Dir: "", Ext: "txt", Size: 1},
+		{VolumeID: testVolume, Path: "gone.txt", Name: "gone.txt", Dir: "", Ext: "txt", Size: 1},
 	}
-	if err := idx.Reconcile(initial, run1); err != nil {
+	if err := idx.Reconcile(testVolume, initial, run1); err != nil {
 		t.Fatalf("Reconcile initial: %v", err)
 	}
 
 	run2 := mustRun(t, idx)
 	updated := []File{
-		{Path: "keep.txt", Name: "keep.txt", Dir: "", Ext: "txt", Size: 999},
+		{VolumeID: testVolume, Path: "keep.txt", Name: "keep.txt", Dir: "", Ext: "txt", Size: 999},
 	}
-	if err := idx.Reconcile(updated, run2); err != nil {
+	if err := idx.Reconcile(testVolume, updated, run2); err != nil {
 		t.Fatalf("Reconcile updated: %v", err)
 	}
 
-	got, ok, err := idx.Stat("keep.txt")
+	got, ok, err := idx.Stat(testVolume, "keep.txt")
 	if err != nil || !ok {
 		t.Fatalf("keep.txt should still exist: ok=%v err=%v", ok, err)
 	}
 	if got.Size != 999 {
 		t.Fatalf("keep.txt should have the updated size, got %d", got.Size)
 	}
-	if _, ok, err := idx.Stat("gone.txt"); err != nil || ok {
+	if _, ok, err := idx.Stat(testVolume, "gone.txt"); err != nil || ok {
 		t.Fatalf("gone.txt should have been reconciled away: ok=%v err=%v", ok, err)
 	}
 }
@@ -133,18 +174,18 @@ func TestUpsertAndDeleteSingleFile(t *testing.T) {
 	idx := openTest(t)
 
 	run := mustRun(t, idx)
-	f := File{Path: "note.md", Name: "note.md", Dir: "", Ext: "md"}
+	f := File{VolumeID: testVolume, Path: "note.md", Name: "note.md", Dir: "", Ext: "md"}
 	if err := idx.Upsert(f, run); err != nil {
 		t.Fatalf("Upsert: %v", err)
 	}
-	if _, ok, err := idx.Stat("note.md"); err != nil || !ok {
+	if _, ok, err := idx.Stat(testVolume, "note.md"); err != nil || !ok {
 		t.Fatalf("note.md should exist after Upsert: ok=%v err=%v", ok, err)
 	}
 
-	if err := idx.Delete("note.md"); err != nil {
+	if err := idx.Delete(testVolume, "note.md"); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	if _, ok, err := idx.Stat("note.md"); err != nil || ok {
+	if _, ok, err := idx.Stat(testVolume, "note.md"); err != nil || ok {
 		t.Fatalf("note.md should be gone after Delete: ok=%v err=%v", ok, err)
 	}
 }
@@ -156,7 +197,7 @@ func TestStreamUpsertBatches(t *testing.T) {
 	entries := make(chan File, 10)
 	for i := 0; i < 5; i++ {
 		p := fmt.Sprintf("f%d.txt", i)
-		entries <- File{Path: p, Name: p}
+		entries <- File{VolumeID: testVolume, Path: p, Name: p}
 	}
 	close(entries)
 
@@ -171,7 +212,7 @@ func TestStreamUpsertBatches(t *testing.T) {
 		t.Fatalf("expected 5 written, got %d", written)
 	}
 
-	all, err := idx.Search("f", 10)
+	all, err := idx.Search(testVolume, "f", 10)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -187,7 +228,7 @@ func TestStreamUpsertKeepsDrainingAfterWriteError(t *testing.T) {
 	entries := make(chan File, 10)
 	for i := 0; i < 4; i++ {
 		p := fmt.Sprintf("g%d.txt", i)
-		entries <- File{Path: p, Name: p}
+		entries <- File{VolumeID: testVolume, Path: p, Name: p}
 	}
 	close(entries)
 	idx.Close() // force every subsequent UpsertBatch call to fail
@@ -198,5 +239,41 @@ func TestStreamUpsertKeepsDrainingAfterWriteError(t *testing.T) {
 	}
 	if written != 0 {
 		t.Fatalf("expected 0 written once every batch fails, got %d", written)
+	}
+}
+
+func TestSearchAcrossAllVolumes(t *testing.T) {
+	idx := openTest(t)
+
+	run1, err := idx.StartCrawlRun(1)
+	if err != nil {
+		t.Fatalf("StartCrawlRun: %v", err)
+	}
+	if err := idx.UpsertBatch([]File{{VolumeID: 1, Path: "report.pdf", Name: "report.pdf"}}, run1); err != nil {
+		t.Fatalf("UpsertBatch: %v", err)
+	}
+
+	run2, err := idx.StartCrawlRun(2)
+	if err != nil {
+		t.Fatalf("StartCrawlRun: %v", err)
+	}
+	if err := idx.UpsertBatch([]File{{VolumeID: 2, Path: "report-final.pdf", Name: "report-final.pdf"}}, run2); err != nil {
+		t.Fatalf("UpsertBatch: %v", err)
+	}
+
+	all, err := idx.Search(0, "report", 10)
+	if err != nil {
+		t.Fatalf("Search across all volumes: %v", err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("expected 2 results across both volumes, got %d: %+v", len(all), all)
+	}
+
+	scoped, err := idx.Search(1, "report", 10)
+	if err != nil {
+		t.Fatalf("Search scoped to volume 1: %v", err)
+	}
+	if len(scoped) != 1 || scoped[0].VolumeID != 1 {
+		t.Fatalf("expected 1 result scoped to volume 1, got %+v", scoped)
 	}
 }

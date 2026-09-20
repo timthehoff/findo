@@ -1,5 +1,7 @@
 // Package index persists crawled file metadata to SQLite and serves
-// listing/search queries over it.
+// listing/search queries over it. One database backs every configured NAS
+// volume: files and crawl_runs rows are tagged with a volume_id so a single
+// index can hold multiple independently-crawled shares.
 package index
 
 import (
@@ -13,20 +15,21 @@ import (
 )
 
 type File struct {
-	Path    string `json:"path"`
-	Name    string `json:"name"`
-	Dir     string `json:"dir"`
-	Ext     string `json:"ext"`
-	IsDir   bool   `json:"isDir"`
-	Size    int64  `json:"size"`
-	ModTime int64  `json:"modTime"`
+	VolumeID int64  `json:"volumeId"`
+	Path     string `json:"path"`
+	Name     string `json:"name"`
+	Dir      string `json:"dir"`
+	Ext      string `json:"ext"`
+	IsDir    bool   `json:"isDir"`
+	Size     int64  `json:"size"`
+	ModTime  int64  `json:"modTime"`
 }
 
+// Stats is an aggregate file/dir count, either across every volume
+// (Index.Stats) or scoped to one (Index.VolumeStats).
 type Stats struct {
-	FileCount    int    `json:"fileCount"`
-	DirCount     int    `json:"dirCount"`
-	LastCrawlAt  string `json:"lastCrawlAt,omitempty"`
-	LastCrawlErr string `json:"lastCrawlError,omitempty"`
+	FileCount int `json:"fileCount"`
+	DirCount  int `json:"dirCount"`
 }
 
 type Index struct {
@@ -57,34 +60,53 @@ func (idx *Index) Close() error {
 
 func (idx *Index) migrate() error {
 	_, err := idx.db.Exec(`
+		CREATE TABLE IF NOT EXISTS volumes (
+			id              INTEGER PRIMARY KEY AUTOINCREMENT,
+			name            TEXT NOT NULL,
+			host            TEXT NOT NULL,
+			share           TEXT NOT NULL,
+			username        TEXT NOT NULL,
+			password_enc    BLOB NOT NULL,
+			enabled         INTEGER NOT NULL DEFAULT 1,
+			created_at      TEXT NOT NULL,
+			updated_at      TEXT NOT NULL,
+			last_test_ok    INTEGER,
+			last_test_at    TEXT,
+			last_test_error TEXT
+		);
+
 		CREATE TABLE IF NOT EXISTS files (
-			path          TEXT PRIMARY KEY,
+			volume_id     INTEGER NOT NULL,
+			path          TEXT NOT NULL,
 			name          TEXT NOT NULL,
 			dir           TEXT NOT NULL,
 			ext           TEXT NOT NULL,
 			is_dir        INTEGER NOT NULL,
 			size          INTEGER NOT NULL,
 			mod_time      INTEGER NOT NULL,
-			last_seen_run INTEGER NOT NULL DEFAULT 0
+			last_seen_run INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY (volume_id, path)
 		);
-		CREATE INDEX IF NOT EXISTS idx_files_dir ON files(dir);
-		CREATE INDEX IF NOT EXISTS idx_files_name ON files(name);
+		CREATE INDEX IF NOT EXISTS idx_files_volume_dir ON files(volume_id, dir);
+		CREATE INDEX IF NOT EXISTS idx_files_volume_name ON files(volume_id, name);
 
 		CREATE TABLE IF NOT EXISTS crawl_runs (
-			id         INTEGER PRIMARY KEY AUTOINCREMENT,
-			started_at TEXT NOT NULL,
+			id          INTEGER PRIMARY KEY AUTOINCREMENT,
+			volume_id   INTEGER NOT NULL,
+			started_at  TEXT NOT NULL,
 			finished_at TEXT,
-			error      TEXT
+			error       TEXT
 		);
+		CREATE INDEX IF NOT EXISTS idx_crawl_runs_volume ON crawl_runs(volume_id, id DESC);
 	`)
 	return err
 }
 
 // UpsertBatch inserts or updates every given file in one transaction,
-// stamping each row with runID so a later Sweep(runID) can tell which rows
-// weren't seen in this crawl. Callers with a large crawl to index should
-// call this in chunks as entries are discovered rather than buffering the
-// whole tree in memory first.
+// stamping each row with runID so a later Sweep(volumeID, runID) can tell
+// which rows weren't seen in this crawl. Callers with a large crawl to
+// index should call this in chunks as entries are discovered rather than
+// buffering the whole tree in memory first.
 func (idx *Index) UpsertBatch(files []File, runID int64) error {
 	tx, err := idx.db.Begin()
 	if err != nil {
@@ -93,9 +115,9 @@ func (idx *Index) UpsertBatch(files []File, runID int64) error {
 	defer tx.Rollback()
 
 	stmt, err := tx.Prepare(`
-		INSERT INTO files (path, name, dir, ext, is_dir, size, mod_time, last_seen_run)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(path) DO UPDATE SET
+		INSERT INTO files (volume_id, path, name, dir, ext, is_dir, size, mod_time, last_seen_run)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(volume_id, path) DO UPDATE SET
 			name = excluded.name,
 			dir = excluded.dir,
 			ext = excluded.ext,
@@ -114,7 +136,7 @@ func (idx *Index) UpsertBatch(files []File, runID int64) error {
 		if f.IsDir {
 			isDir = 1
 		}
-		if _, err := stmt.Exec(f.Path, f.Name, f.Dir, f.Ext, isDir, f.Size, f.ModTime, runID); err != nil {
+		if _, err := stmt.Exec(f.VolumeID, f.Path, f.Name, f.Dir, f.Ext, isDir, f.Size, f.ModTime, runID); err != nil {
 			return fmt.Errorf("upsert %q: %w", f.Path, err)
 		}
 	}
@@ -165,35 +187,39 @@ func (idx *Index) Upsert(f File, runID int64) error {
 	return idx.UpsertBatch([]File{f}, runID)
 }
 
-// Sweep deletes every file not stamped with runID — the mark-and-sweep half
-// of a reconciling crawl: anything not seen during run runID no longer
-// exists on the NAS (or wasn't reachable this run) and is dropped from the
-// index.
-func (idx *Index) Sweep(runID int64) error {
-	_, err := idx.db.Exec(`DELETE FROM files WHERE last_seen_run != ?`, runID)
+// Sweep deletes every file in volumeID not stamped with runID — the
+// mark-and-sweep half of a reconciling crawl: anything not seen during run
+// runID no longer exists on the NAS (or wasn't reachable this run) and is
+// dropped from the index.
+func (idx *Index) Sweep(volumeID, runID int64) error {
+	_, err := idx.db.Exec(`DELETE FROM files WHERE volume_id = ? AND last_seen_run != ?`, volumeID, runID)
 	return err
 }
 
 // Delete removes a single file by path, e.g. from a live change-notify
 // event.
-func (idx *Index) Delete(p string) error {
-	_, err := idx.db.Exec(`DELETE FROM files WHERE path = ?`, strings.Trim(p, "/"))
+func (idx *Index) Delete(volumeID int64, p string) error {
+	_, err := idx.db.Exec(`DELETE FROM files WHERE volume_id = ? AND path = ?`, volumeID, strings.Trim(p, "/"))
 	return err
 }
 
-// Reconcile upserts every file in files, then sweeps anything not seen in
-// this batch — the whole-batch convenience path for callers (today, a full
-// crawl) that already have the complete file list in memory.
-func (idx *Index) Reconcile(files []File, runID int64) error {
+// Reconcile upserts every file in files, then sweeps anything in volumeID
+// not seen in this batch — the whole-batch convenience path for callers
+// that already have the complete file list in memory.
+func (idx *Index) Reconcile(volumeID int64, files []File, runID int64) error {
 	if err := idx.UpsertBatch(files, runID); err != nil {
 		return err
 	}
-	return idx.Sweep(runID)
+	return idx.Sweep(volumeID, runID)
 }
 
-// StartCrawlRun records the start of a crawl and returns its id.
-func (idx *Index) StartCrawlRun() (int64, error) {
-	res, err := idx.db.Exec(`INSERT INTO crawl_runs (started_at) VALUES (?)`, time.Now().UTC().Format(time.RFC3339))
+// StartCrawlRun records the start of a crawl for volumeID and returns its
+// run id.
+func (idx *Index) StartCrawlRun(volumeID int64) (int64, error) {
+	res, err := idx.db.Exec(
+		`INSERT INTO crawl_runs (volume_id, started_at) VALUES (?, ?)`,
+		volumeID, time.Now().UTC().Format(time.RFC3339),
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -213,6 +239,30 @@ func (idx *Index) FinishCrawlRun(id int64, crawlErr error) error {
 	return err
 }
 
+// CrawlStatus summarizes one volume's most recent crawl run.
+type CrawlStatus struct {
+	StartedAt  string `json:"startedAt"`
+	FinishedAt string `json:"finishedAt,omitempty"`
+	Error      string `json:"error,omitempty"`
+}
+
+// LatestCrawlRun returns volumeID's most recent crawl run, if it has one.
+func (idx *Index) LatestCrawlRun(volumeID int64) (CrawlStatus, bool, error) {
+	row := idx.db.QueryRow(
+		`SELECT started_at, COALESCE(finished_at,''), COALESCE(error,'') FROM crawl_runs
+		 WHERE volume_id = ? ORDER BY id DESC LIMIT 1`,
+		volumeID,
+	)
+	var cs CrawlStatus
+	if err := row.Scan(&cs.StartedAt, &cs.FinishedAt, &cs.Error); err != nil {
+		if err == sql.ErrNoRows {
+			return CrawlStatus{}, false, nil
+		}
+		return CrawlStatus{}, false, err
+	}
+	return cs, true, nil
+}
+
 func nullIfEmpty(s string) interface{} {
 	if s == "" {
 		return nil
@@ -220,12 +270,13 @@ func nullIfEmpty(s string) interface{} {
 	return s
 }
 
-// List returns immediate children of dir ("" for share root).
-func (idx *Index) List(dir string) ([]File, error) {
+// List returns immediate children of dir ("" for the volume's root).
+func (idx *Index) List(volumeID int64, dir string) ([]File, error) {
 	dir = normalizeDir(dir)
 	rows, err := idx.db.Query(
-		`SELECT path, name, dir, ext, is_dir, size, mod_time FROM files WHERE dir = ? ORDER BY is_dir DESC, name ASC`,
-		dir,
+		`SELECT volume_id, path, name, dir, ext, is_dir, size, mod_time FROM files
+		 WHERE volume_id = ? AND dir = ? ORDER BY is_dir DESC, name ASC`,
+		volumeID, dir,
 	)
 	if err != nil {
 		return nil, err
@@ -235,15 +286,28 @@ func (idx *Index) List(dir string) ([]File, error) {
 }
 
 // Search returns files/dirs whose name contains q (case-insensitive).
-func (idx *Index) Search(q string, limit int) ([]File, error) {
+// volumeID == 0 searches across every volume; otherwise it's scoped to one.
+func (idx *Index) Search(volumeID int64, q string, limit int) ([]File, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
-	rows, err := idx.db.Query(
-		`SELECT path, name, dir, ext, is_dir, size, mod_time FROM files
-		 WHERE name LIKE ? ESCAPE '\' ORDER BY name ASC LIMIT ?`,
-		"%"+likeEscape(q)+"%", limit,
-	)
+	pattern := "%" + likeEscape(q) + "%"
+
+	var rows *sql.Rows
+	var err error
+	if volumeID == 0 {
+		rows, err = idx.db.Query(
+			`SELECT volume_id, path, name, dir, ext, is_dir, size, mod_time FROM files
+			 WHERE name LIKE ? ESCAPE '\' ORDER BY name ASC LIMIT ?`,
+			pattern, limit,
+		)
+	} else {
+		rows, err = idx.db.Query(
+			`SELECT volume_id, path, name, dir, ext, is_dir, size, mod_time FROM files
+			 WHERE volume_id = ? AND name LIKE ? ESCAPE '\' ORDER BY name ASC LIMIT ?`,
+			volumeID, pattern, limit,
+		)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -251,15 +315,16 @@ func (idx *Index) Search(q string, limit int) ([]File, error) {
 	return scanFiles(rows)
 }
 
-// Stat returns metadata for a single path, if indexed.
-func (idx *Index) Stat(p string) (File, bool, error) {
+// Stat returns metadata for a single path within volumeID, if indexed.
+func (idx *Index) Stat(volumeID int64, p string) (File, bool, error) {
 	row := idx.db.QueryRow(
-		`SELECT path, name, dir, ext, is_dir, size, mod_time FROM files WHERE path = ?`,
-		strings.Trim(p, "/"),
+		`SELECT volume_id, path, name, dir, ext, is_dir, size, mod_time FROM files
+		 WHERE volume_id = ? AND path = ?`,
+		volumeID, strings.Trim(p, "/"),
 	)
 	var f File
 	var isDir int
-	if err := row.Scan(&f.Path, &f.Name, &f.Dir, &f.Ext, &isDir, &f.Size, &f.ModTime); err != nil {
+	if err := row.Scan(&f.VolumeID, &f.Path, &f.Name, &f.Dir, &f.Ext, &isDir, &f.Size, &f.ModTime); err != nil {
 		if err == sql.ErrNoRows {
 			return File{}, false, nil
 		}
@@ -269,6 +334,7 @@ func (idx *Index) Stat(p string) (File, bool, error) {
 	return f, true, nil
 }
 
+// Stats returns file/dir counts aggregated across every volume.
 func (idx *Index) Stats() (Stats, error) {
 	var s Stats
 	if err := idx.db.QueryRow(`SELECT COUNT(*) FROM files WHERE is_dir = 0`).Scan(&s.FileCount); err != nil {
@@ -277,20 +343,18 @@ func (idx *Index) Stats() (Stats, error) {
 	if err := idx.db.QueryRow(`SELECT COUNT(*) FROM files WHERE is_dir = 1`).Scan(&s.DirCount); err != nil {
 		return s, err
 	}
+	return s, nil
+}
 
-	row := idx.db.QueryRow(`SELECT started_at, COALESCE(finished_at,''), COALESCE(error,'') FROM crawl_runs ORDER BY id DESC LIMIT 1`)
-	var started, finished, crawlErr string
-	if err := row.Scan(&started, &finished, &crawlErr); err == nil {
-		if finished != "" {
-			s.LastCrawlAt = finished
-		} else {
-			s.LastCrawlAt = started
-		}
-		s.LastCrawlErr = crawlErr
-	} else if err != sql.ErrNoRows {
+// VolumeStats returns file/dir counts for a single volume.
+func (idx *Index) VolumeStats(volumeID int64) (Stats, error) {
+	var s Stats
+	if err := idx.db.QueryRow(`SELECT COUNT(*) FROM files WHERE volume_id = ? AND is_dir = 0`, volumeID).Scan(&s.FileCount); err != nil {
 		return s, err
 	}
-
+	if err := idx.db.QueryRow(`SELECT COUNT(*) FROM files WHERE volume_id = ? AND is_dir = 1`, volumeID).Scan(&s.DirCount); err != nil {
+		return s, err
+	}
 	return s, nil
 }
 
@@ -299,7 +363,7 @@ func scanFiles(rows *sql.Rows) ([]File, error) {
 	for rows.Next() {
 		var f File
 		var isDir int
-		if err := rows.Scan(&f.Path, &f.Name, &f.Dir, &f.Ext, &isDir, &f.Size, &f.ModTime); err != nil {
+		if err := rows.Scan(&f.VolumeID, &f.Path, &f.Name, &f.Dir, &f.Ext, &isDir, &f.Size, &f.ModTime); err != nil {
 			return nil, err
 		}
 		f.IsDir = isDir == 1

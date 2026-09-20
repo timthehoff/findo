@@ -53,10 +53,17 @@ Only **Milestone 1** of the backend is built:
   dropped changes, or the watch session had to reconnect), it triggers a
   full crawl to catch up — plus a daily full crawl runs regardless, as a
   safety net.
-- HTTP API: `GET /files` (list by dir), `GET /search` (name search),
-  `GET /files/content` (Range-aware streamed read via `http.ServeContent`),
-  `GET /health`, `GET /stats`, `POST /reindex`.
-- A minimal built-in dashboard (`GET /`) for poking the index by hand.
+- Multiple SMB volumes can be configured at runtime — no restart required.
+  Credentials are encrypted at rest (AES-256-GCM under a server-wide master
+  key) and never round-trip back out of the API once set.
+- HTTP API: `GET/POST /volumes`, `PUT/DELETE /volumes/{id}`,
+  `POST /volumes/{id}/test` (or `POST /volumes/test` before saving),
+  `POST /volumes/{id}/reindex`, `GET /files` (list by dir, `?volume=`),
+  `GET /search` (name search, optionally scoped to `?volume=`),
+  `GET /files/content` (Range-aware streamed read via `http.ServeContent`,
+  `?volume=`), `GET /health`, `GET /stats`.
+- A minimal built-in dashboard (`GET /`) for configuring volumes and poking
+  the index by hand.
 
 Not yet built: file write/save-back, conflict detection (version/mtime
 tracking beyond what's indexed), the iOS app in its entirety (File Provider
@@ -69,14 +76,18 @@ Requires Go 1.25+ (see `backend/go.mod`).
 
 ```sh
 cd backend
-cp .env.example .env   # fill in real SMB_HOST/SMB_SHARE/SMB_USER/SMB_PASS
+cp .env.example .env   # fill in FINDO_MASTER_KEY (openssl rand -base64 32)
 make run
 ```
 
 The server reads config from environment variables, optionally via a local
-`.env` file (see `backend/internal/config/config.go`). Required vars:
-`SMB_HOST`, `SMB_SHARE`, `SMB_USER`, `SMB_PASS`. Optional: `HTTP_ADDR`
-(default `:8080`), `DB_PATH` (default `findo.db`).
+`.env` file (see `backend/internal/config/config.go`). The only required var
+is `FINDO_MASTER_KEY`, which encrypts SMB volume passwords at rest. Optional:
+`HTTP_ADDR` (default `:8080`), `DB_PATH` (default `findo.db`).
+
+SMB volumes themselves aren't configured via environment variables — add one
+at runtime through the dashboard (`GET /`) or `POST /volumes` once the server
+is running; the server starts fine with zero volumes configured.
 
 ### Makefile targets
 
@@ -104,8 +115,10 @@ cd backend
 docker compose -f docker-compose.dev.yml up --build
 ```
 
-Then visit `http://localhost:8080/` for the dashboard, or hit the API
-directly, e.g. `curl http://localhost:8080/search?q=budget`.
+Then visit `http://localhost:8080/` for the dashboard and add the samba
+container as a volume (host `samba`, share `testshare`, user/pass
+`testuser`/`testpass`), or hit the API directly — see the compose file's
+comment for the equivalent `curl -X POST /volumes` command.
 
 ## Repo layout
 
@@ -113,9 +126,10 @@ directly, e.g. `curl http://localhost:8080/search?q=budget`.
 backend/
   cmd/findo-server/       # main entrypoint
   internal/config/        # env/.env config loading
+  internal/crypto/        # AES-256-GCM at-rest encryption for volume passwords
   internal/smbclient/     # SMB2 session, walk, open, change-notify watch
-  internal/index/         # SQLite-backed file metadata index
-  internal/httpapi/       # HTTP routes, handlers, crawl orchestration
+  internal/index/         # SQLite-backed file metadata index + volume config
+  internal/httpapi/       # HTTP routes, handlers, per-volume crawl orchestration
   internal/dashboard/     # embedded static HTML dashboard
   testdata/seed/          # sample files for the dev Samba container
 ```

@@ -7,49 +7,40 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/thoff/findo/backend/internal/crypto"
 )
 
 type Config struct {
-	SMBHost  string
-	SMBShare string
-	SMBUser  string
-	SMBPass  string
-	HTTPAddr string
-	DBPath   string
+	HTTPAddr  string
+	DBPath    string
+	MasterKey []byte // decoded, KeySize bytes; encrypts volume passwords at rest
 }
 
 // Load reads configuration from the environment, first loading any KEY=VALUE
 // pairs from a .env file at envPath if present (existing env vars win).
+// SMB connection details aren't loaded here: volumes are configured at
+// runtime (see internal/index Volume/httpapi /volumes) and stored encrypted
+// under MasterKey, not read from the environment.
 func Load(envPath string) (Config, error) {
 	if err := loadDotEnv(envPath); err != nil {
 		return Config{}, err
 	}
 
-	cfg := Config{
-		SMBHost:  os.Getenv("SMB_HOST"),
-		SMBShare: os.Getenv("SMB_SHARE"),
-		SMBUser:  os.Getenv("SMB_USER"),
-		SMBPass:  os.Getenv("SMB_PASS"),
-		HTTPAddr: getEnvDefault("HTTP_ADDR", ":8080"),
-		DBPath:   getEnvDefault("DB_PATH", "findo.db"),
+	keyB64 := os.Getenv("FINDO_MASTER_KEY")
+	if keyB64 == "" {
+		return Config{}, fmt.Errorf("missing required env var: FINDO_MASTER_KEY (generate one with: openssl rand -base64 32)")
+	}
+	key, err := crypto.ParseKey(keyB64)
+	if err != nil {
+		return Config{}, fmt.Errorf("FINDO_MASTER_KEY: %w", err)
 	}
 
-	var missing []string
-	for name, val := range map[string]string{
-		"SMB_HOST":  cfg.SMBHost,
-		"SMB_SHARE": cfg.SMBShare,
-		"SMB_USER":  cfg.SMBUser,
-		"SMB_PASS":  cfg.SMBPass,
-	} {
-		if val == "" {
-			missing = append(missing, name)
-		}
-	}
-	if len(missing) > 0 {
-		return Config{}, fmt.Errorf("missing required env vars: %s", strings.Join(missing, ", "))
-	}
-
-	return cfg, nil
+	return Config{
+		HTTPAddr:  getEnvDefault("HTTP_ADDR", ":8080"),
+		DBPath:    getEnvDefault("DB_PATH", "findo.db"),
+		MasterKey: key,
+	}, nil
 }
 
 func getEnvDefault(key, def string) string {
