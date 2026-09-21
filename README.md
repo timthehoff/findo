@@ -105,11 +105,6 @@ backend/
 │   ├── index/            # file metadata index + volume config
 │   ├── httpapi/          # HTTP routes and handlers
 │   └── dashboard/        # embedded static dashboard
-├── testdata/
-│   └── seed/             # sample files for the dev Samba container
-├── Dockerfile
-├── docker-compose.dev.yml  # dev stack: throwaway Samba + findo
-├── Makefile
-├── go.mod, go.sum
-└── .env.example
+└── testdata/
+    └── seed/             # sample files for the dev Samba container
 ```
