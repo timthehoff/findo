@@ -65,8 +65,12 @@ SMB volumes at once, configured at runtime (not via `.env`) through
 is recorded with why it started (`manual`/`startup`/`periodic`/`resync`),
 duration, and files/bytes seen or removed (`GET /volumes/{id}/crawl-runs`),
 and each volume's change-notify listener reports its own connected/last-
-event/resync-count state — both shown in the dashboard. No write/save-back
-API yet, no conflict-version tracking yet, no iOS project in the repo yet.
+event/resync-count state. The dashboard is two pages — `index.html`
+(volume config, crawl/watch monitoring, a per-volume storage/largest-files
+breakdown) and `search.html` (live search, breadcrumb directory browsing)
+— with an explicit light/dark/system theme toggle and toast notifications
+for action feedback. No write/save-back API yet, no conflict-version
+tracking yet, no iOS project in the repo yet.
 
 ## Environment / secrets
 
