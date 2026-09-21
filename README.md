@@ -1,20 +1,25 @@
-# Findo
+# Findo 🐾
 
-Findo makes files on any SMB-accessible NAS (developed against a UniFi
-UNAS/UNAS Pro, but not limited to it) searchable via Siri/Spotlight on iOS
-and editable in native apps (Numbers, Word, etc.), without relying on the
-Files app's limited SMB support.
+Every good dog knows how to fetch. Findo is the same idea, pointed at a NAS:
+it goes and finds your files over SMB so Siri and Spotlight on iOS can
+actually surface them, and hands them back to native apps (Numbers, Word,
+Preview, etc.) to open and edit — something the Files app's SMB support has
+never quite managed on its own.
 
-## Why this exists
+## Why this exists (we did look for a shortcut first)
 
 - iOS's native Siri/Spotlight indexing doesn't reach files on SMB network
-  shares connected via the Files app.
-- The NAS only speaks SMB and NFS natively — no REST/S3 API, no vendor SDK.
+  shares connected via the Files app. A good dog can't fetch what it can't
+  smell.
+- The NAS only speaks SMB and NFS natively — no REST/S3 API, no vendor SDK
+  to lean on instead.
 - Apple's own iWork apps (Numbers/Pages/Keynote) dropped WebDAV support in
-  2020, so WebDAV won't give round-trip editing there either.
+  2020, so WebDAV wouldn't give round-trip editing there either, even if we
+  wanted to fetch that way.
 - The correct extension point for "appear as a location other apps can open
-  AND save to" is a **File Provider Extension** (like Dropbox/OneDrive/Google
-  Drive use), not WebDAV and not a bespoke HTTP-only integration.
+  AND save to" is a **File Provider Extension** (the same mechanism
+  Dropbox/OneDrive/Google Drive use) — not WebDAV, not a bespoke HTTP-only
+  integration.
 
 ## Architecture
 
@@ -35,51 +40,9 @@ For NAS credentials, network topology, iOS developer account status, and
 other environment specifics, see `.env` (not committed — copy from
 `backend/.env.example`) and ask the project owner rather than guessing.
 
-## Current status
-
-Only **Milestone 1** of the backend is built:
-
-- Connects to a single SMB share and recursively crawls it into a SQLite
-  index, listing directories concurrently. Each crawl reconciles the index
-  against what it finds (upserts changed/new files, sweeps away anything no
-  longer present) rather than wiping and rebuilding from scratch, and is
-  best-effort — a directory that fails to list is recorded and skipped
-  rather than aborting the whole crawl.
-- A live change-notify listener (SMB2 `CHANGE_NOTIFY`, via
-  [`timthehoff/go-smb2`](https://github.com/timthehoff/go-smb2) — a fork
-  adding the wire format upstream never implemented) keeps the index in
-  sync between crawls, applying individual add/modify/remove/rename events
-  directly. Whenever it can't guarantee it saw everything (the NAS reports
-  dropped changes, or the watch session had to reconnect), it triggers a
-  full crawl to catch up — plus a daily full crawl runs regardless, as a
-  safety net.
-- Multiple SMB volumes can be configured at runtime — no restart required.
-  Credentials are encrypted at rest (AES-256-GCM under a server-wide master
-  key) and never round-trip back out of the API once set.
-- Every crawl is recorded with why it ran (manual reindex, startup,
-  the periodic safety net, or a change-notify-triggered resync), how long
-  it took, and how many files/bytes it saw or removed — visible per volume
-  in the dashboard and via `GET /volumes/{id}/crawl-runs`. Each volume's
-  change-notify listener also reports its own live connected/last-event/
-  resync-count state.
-- HTTP API: `GET/POST /volumes`, `PUT/DELETE /volumes/{id}`,
-  `POST /volumes/{id}/test` (or `POST /volumes/test` before saving),
-  `POST /volumes/{id}/reindex`, `GET /volumes/{id}/crawl-runs`,
-  `GET /volumes/{id}/insights` (storage by file extension + largest
-  files, for the dashboard's small charts), `GET /files` (list by dir,
-  `?volume=`), `GET /search` (name search, optionally scoped to
-  `?volume=`), `GET /files/content` (Range-aware streamed read via
-  `http.ServeContent`, `?volume=`), `GET /health`, `GET /stats`.
-- A minimal built-in dashboard: `GET /` for configuring volumes and crawl/
-  watch monitoring (plus a per-volume storage/largest-files breakdown),
-  `GET /search.html` for live search and breadcrumb directory browsing.
-  Supports an explicit light/dark theme toggle (on top of following the OS
-  setting by default) and toast notifications for action feedback.
-
-Not yet built: file write/save-back, conflict detection (version/mtime
-tracking beyond what's indexed), the iOS app in its entirety (File Provider
-Extension, App Intents/Spotlight indexing, Quick Look integration), and app
-branding/icon assets.
+Current build status and what's implemented vs. not lives in
+[`.claude/CLAUDE.md`](.claude/CLAUDE.md), kept up to date alongside the code
+rather than duplicated here.
 
 ## Backend: running it
 
@@ -135,12 +98,20 @@ comment for the equivalent `curl -X POST /volumes` command.
 
 ```
 backend/
-  cmd/findo-server/       # main entrypoint
-  internal/config/        # env/.env config loading
-  internal/crypto/        # AES-256-GCM at-rest encryption for volume passwords
-  internal/smbclient/     # SMB2 session, walk, open, change-notify watch
-  internal/index/         # SQLite-backed file metadata index + volume config
-  internal/httpapi/       # HTTP routes, handlers, per-volume crawl orchestration
-  internal/dashboard/     # embedded static multi-page dashboard (html/css/js)
-  testdata/seed/          # sample files for the dev Samba container
+├── cmd/
+│   └── findo-server/     # main() — loads config, opens the index, starts every enabled volume, serves HTTP
+├── internal/
+│   ├── config/           # env/.env loading (FINDO_MASTER_KEY, HTTP_ADDR, DB_PATH)
+│   ├── crypto/           # AES-256-GCM encrypt/decrypt for volume passwords at rest
+│   ├── smbclient/        # SMB2 session: connect, walk, open, change-notify watch
+│   ├── index/            # SQLite-backed file metadata index + volume config CRUD
+│   ├── httpapi/          # HTTP routes/handlers, per-volume crawl orchestration
+│   └── dashboard/        # embedded static dashboard — index.html + search.html, plain css/js
+├── testdata/
+│   └── seed/             # sample files the dev Samba container serves
+├── Dockerfile            # builds the findo-server binary into a small alpine image
+├── docker-compose.dev.yml  # throwaway Samba + findo stack for local testing
+├── Makefile               # build / check / fix / test / run
+├── go.mod, go.sum
+└── .env.example          # copy to .env, fill in FINDO_MASTER_KEY
 ```
