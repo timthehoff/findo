@@ -1,12 +1,11 @@
 # Findo 🐾
 
-Every good dog knows how to fetch. Findo is the same idea, pointed at a NAS:
-it goes and finds your files over SMB so Siri and Spotlight on iOS can
-actually surface them, and hands them back to native apps (Numbers, Word,
-Preview, etc.) to open and edit — something the Files app's SMB support has
-never quite managed on its own.
+Every good dog knows how to fetch. Findo does the same thing for a NAS: it
+crawls your files over SMB, builds a searchable index, and serves them back
+over HTTP so Siri and Spotlight on iOS can find them, and native apps
+(Numbers, Word, Preview, etc.) can open and edit them directly.
 
-## Why this exists (we did look for a shortcut first)
+## Why this exists
 
 - iOS's native Siri/Spotlight indexing doesn't reach files on SMB network
   shares connected via the Files app. A good dog can't fetch what it can't
@@ -40,9 +39,8 @@ For NAS credentials, network topology, iOS developer account status, and
 other environment specifics, see `.env` (not committed — copy from
 `backend/.env.example`) and ask the project owner rather than guessing.
 
-Current build status and what's implemented vs. not lives in
-[`.claude/CLAUDE.md`](.claude/CLAUDE.md), kept up to date alongside the code
-rather than duplicated here.
+Current build status and what's implemented lives in
+[`.claude/CLAUDE.md`](.claude/CLAUDE.md).
 
 ## Backend: running it
 
@@ -99,19 +97,19 @@ comment for the equivalent `curl -X POST /volumes` command.
 ```
 backend/
 ├── cmd/
-│   └── findo-server/     # main() — loads config, opens the index, starts every enabled volume, serves HTTP
+│   └── findo-server/     # main entrypoint
 ├── internal/
-│   ├── config/           # env/.env loading (FINDO_MASTER_KEY, HTTP_ADDR, DB_PATH)
-│   ├── crypto/           # AES-256-GCM encrypt/decrypt for volume passwords at rest
-│   ├── smbclient/        # SMB2 session: connect, walk, open, change-notify watch
-│   ├── index/            # SQLite-backed file metadata index + volume config CRUD
-│   ├── httpapi/          # HTTP routes/handlers, per-volume crawl orchestration
-│   └── dashboard/        # embedded static dashboard — index.html + search.html, plain css/js
+│   ├── config/           # env/.env config loading
+│   ├── crypto/           # encrypts volume passwords at rest
+│   ├── smbclient/        # SMB2 client
+│   ├── index/            # file metadata index + volume config
+│   ├── httpapi/          # HTTP routes and handlers
+│   └── dashboard/        # embedded static dashboard
 ├── testdata/
-│   └── seed/             # sample files the dev Samba container serves
-├── Dockerfile            # builds the findo-server binary into a small alpine image
-├── docker-compose.dev.yml  # throwaway Samba + findo stack for local testing
-├── Makefile               # build / check / fix / test / run
+│   └── seed/             # sample files for the dev Samba container
+├── Dockerfile
+├── docker-compose.dev.yml  # dev stack: throwaway Samba + findo
+├── Makefile
 ├── go.mod, go.sum
-└── .env.example          # copy to .env, fill in FINDO_MASTER_KEY
+└── .env.example
 ```
