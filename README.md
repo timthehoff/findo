@@ -30,10 +30,11 @@ Two components:
    and eventually file write (save-back from the iOS app). See
    [`backend/`](backend/).
 
-2. **iOS app "Findo"** *(not started yet)* — a File Provider Extension so the
-   NAS appears as a location in the Files/document picker UI in any app, plus
-   App Intents + Core Spotlight so Siri/Spotlight can find and open indexed
-   files, plus Quick Look integration for fast in-app preview.
+2. **iOS app "Findo"** — a File Provider Extension so the NAS appears as a
+   location in the Files/document picker UI in any app, plus App Intents +
+   Core Spotlight so Siri/Spotlight can find and open indexed files, plus
+   Quick Look integration for fast in-app preview. MVP milestone (browse +
+   open, read-only) is scaffolded; see [`ios/`](ios/).
 
 For NAS credentials, network topology, iOS developer account status, and
 other environment specifics, see `.env` (not committed — copy from
@@ -92,6 +93,19 @@ container as a volume (host `samba`, share `testshare`, user/pass
 `testuser`/`testpass`), or hit the API directly — see the compose file's
 comment for the equivalent `curl -X POST /volumes` command.
 
+## iOS: building it
+
+Requires a Mac with Xcode and [XcodeGen](https://github.com/yonaskolb/XcodeGen)
+(`brew install xcodegen`) — see [`ios/README.md`](ios/README.md) for full
+setup (bundle id / App Group / Team ID placeholders to fill in, signing,
+running on-device). Quick version:
+
+```sh
+cd ios
+xcodegen generate
+open Findo.xcodeproj
+```
+
 ## Repo layout
 
 ```
@@ -107,4 +121,10 @@ backend/
 │   └── dashboard/        # embedded static dashboard
 └── testdata/
     └── seed/             # sample files for the dev Samba container
+
+ios/
+├── project.yml           # XcodeGen spec (source of truth; .xcodeproj is generated)
+├── Findo/                # host app: backend URL settings screen
+├── FindoFileProvider/    # File Provider Extension (browse/open, MVP read-only)
+└── FindoKit/             # shared framework: API client + models
 ```

@@ -2,3 +2,10 @@
 *.db
 *.db-journal
 /backend/findo-server
+
+# iOS: Findo.xcodeproj is generated from ios/project.yml via `xcodegen
+# generate` (see ios/README.md), so it's never committed.
+/ios/*.xcodeproj
+/ios/*.xcworkspace
+/ios/DerivedData/
+**/xcuserdata/

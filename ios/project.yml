@@ -1,0 +1,85 @@
+# XcodeGen spec for the Findo iOS app. `Findo.xcodeproj` is generated from
+# this file (via `xcodegen generate`) rather than committed, so the project
+# file itself never causes merge conflicts — see ios/README.md.
+#
+# Placeholders to replace before generating, all tied to your own Apple
+# Developer account (never invented/guessed — see CLAUDE.md "Environment /
+# secrets"):
+#   - `com.example.findo`  -> your own reverse-DNS bundle id prefix
+#   - `group.com.example.findo` (in both .entitlements files,
+#     FindoFileProvider/Info.plist's NSExtensionFileProviderDocumentGroup,
+#     and FindoKit/Sources/FindoKit/BackendConfig.swift's appGroupID)
+#     -> an App Group id registered to your team, all four kept identical
+#   - `YOUR_TEAM_ID` -> your Apple Developer Team ID
+
+name: Findo
+options:
+  bundleIdPrefix: com.example.findo
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    DEVELOPMENT_TEAM: YOUR_TEAM_ID
+    SWIFT_VERSION: "5.0"
+    CODE_SIGN_STYLE: Automatic
+    TARGETED_DEVICE_FAMILY: "1"
+
+targets:
+  FindoKit:
+    type: framework
+    platform: iOS
+    sources:
+      - path: FindoKit/Sources/FindoKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.findo.FindoKit
+        SKIP_INSTALL: true
+
+  FindoFileProvider:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: FindoFileProvider/Sources
+    info:
+      path: FindoFileProvider/Info.plist
+    entitlements:
+      path: FindoFileProvider/FindoFileProvider.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.findo.FindoFileProvider
+    dependencies:
+      - target: FindoKit
+        embed: false
+
+  Findo:
+    type: application
+    platform: iOS
+    sources:
+      - path: Findo/Sources
+      - path: Findo/Assets.xcassets
+    info:
+      path: Findo/Info.plist
+    entitlements:
+      path: Findo/Findo.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.findo
+    dependencies:
+      - target: FindoKit
+        embed: true
+      - target: FindoFileProvider
+        embed: true
+
+schemes:
+  Findo:
+    build:
+      targets:
+        Findo: all
+        FindoFileProvider: all
+        FindoKit: all
+    run:
+      config: Debug
+    archive:
+      config: Release

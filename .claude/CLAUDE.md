@@ -28,7 +28,8 @@ Files app's limited SMB support.
    - Tracks a version/mtime per file so the client can detect conflicts if
      the file changed on the NAS outside of the app.
 
-2. **iOS app "Findo"** (not started yet):
+2. **iOS app "Findo"** (scaffolded in `ios/`; MVP milestone below is browse
+   + open only):
    - **File Provider Extension**: appears as a location in the Files/document
      picker UI in any app (Numbers, Word, Preview, etc.). Implements item
      enumeration, on-demand content fetch (streamed from the backend,
@@ -70,7 +71,21 @@ event/resync-count state. The dashboard is two pages — `index.html`
 breakdown) and `search.html` (live search, breadcrumb directory browsing)
 — with an explicit light/dark/system theme toggle and toast notifications
 for action feedback. No write/save-back API yet, no conflict-version
-tracking yet, no iOS project in the repo yet.
+tracking yet.
+
+iOS: `ios/` has a scaffolded, uncompiled (no Mac in this environment)
+project — an XcodeGen `project.yml` generating three targets: `Findo` (host
+app, just a backend-URL settings screen), `FindoFileProvider` (a legacy/
+non-replicated `NSFileProviderExtension` that lists configured volumes as
+folders and downloads a file's content on open, via `FindoKit`'s
+`APIClient`), and `FindoKit` (shared framework: API client + models mirrored
+from the backend's JSON shapes). Read-only, matching the backend: no
+save-back, so `itemChanged` is a no-op and items only advertise
+`.allowsReading`. No App Intents/Spotlight yet — that's the next iOS
+milestone once browse/open is verified on-device. See `ios/README.md` for
+what a person needs to do on their Mac (Xcode, `xcodegen generate`,
+bundle-id/App-Group/Team-ID placeholders, on-device signing) since none of
+that can happen from this environment.
 
 ## Environment / secrets
 
