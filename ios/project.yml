@@ -5,8 +5,8 @@
 # Placeholders to replace before generating, all tied to your own Apple
 # Developer account (never invented/guessed — see CLAUDE.md "Environment /
 # secrets"):
-#   - `com.example.findo`  -> your own reverse-DNS bundle id prefix
-#   - `group.com.example.findo` (in both .entitlements files,
+#   - `com.timhoff.findo`  -> your own reverse-DNS bundle id prefix
+#   - `group.com.timhoff.findo` (in both .entitlements files,
 #     FindoFileProvider/Info.plist's NSExtensionFileProviderDocumentGroup,
 #     and FindoKit/Sources/FindoKit/BackendConfig.swift's appGroupID)
 #     -> an App Group id registered to your team, all four kept identical
@@ -20,7 +20,7 @@
 
 name: Findo
 options:
-  bundleIdPrefix: com.example.findo
+  bundleIdPrefix: com.timhoff.findo
   deploymentTarget:
     iOS: "16.0"
   createIntermediateGroups: true
@@ -39,7 +39,7 @@ targets:
       - path: FindoKit/Sources/FindoKit
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.findo.FindoKit
+        PRODUCT_BUNDLE_IDENTIFIER: com.timhoff.findo.FindoKit
         SKIP_INSTALL: true
         GENERATE_INFOPLIST_FILE: true
 
@@ -54,7 +54,7 @@ targets:
       path: FindoFileProvider/FindoFileProvider.entitlements
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.findo.FindoFileProvider
+        PRODUCT_BUNDLE_IDENTIFIER: com.timhoff.findo.FindoFileProvider
     dependencies:
       - target: FindoKit
         embed: false
@@ -71,7 +71,7 @@ targets:
       path: Findo/Findo.entitlements
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.findo
+        PRODUCT_BUNDLE_IDENTIFIER: com.timhoff.findo
     dependencies:
       - target: FindoKit
         embed: true

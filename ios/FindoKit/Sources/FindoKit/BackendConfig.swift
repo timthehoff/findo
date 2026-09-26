@@ -9,7 +9,7 @@ import Foundation
 /// call time rather than hardcoded here so a misconfigured group shows up
 /// as a clear "no backend configured" state instead of a silent crash.
 public enum BackendConfig {
-    public static let appGroupID = "group.com.example.findo"
+    public static let appGroupID = "group.com.timhoff.findo"
     private static let baseURLKey = "findo.backendBaseURL"
 
     private static var defaults: UserDefaults? {

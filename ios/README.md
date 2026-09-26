@@ -27,9 +27,9 @@ review in diffs; regenerate the `.xcodeproj` locally whenever it changes.
 3. **Edit `ios/project.yml`** and replace the placeholders (all tied to your
    own Apple Developer account, so left as placeholders rather than
    guessed):
-   - `com.example.findo` → your own reverse-DNS bundle id prefix (e.g.
+   - `com.timhoff.findo` → your own reverse-DNS bundle id prefix (e.g.
      `com.yourname.findo`)
-   - `group.com.example.findo` → an App Group id of your choosing, kept
+   - `group.com.timhoff.findo` → an App Group id of your choosing, kept
      **identical** in all four places it appears: `Findo/Findo.entitlements`,
      `FindoFileProvider/FindoFileProvider.entitlements`,
      `FindoFileProvider/Info.plist`'s `NSExtensionFileProviderDocumentGroup`,
