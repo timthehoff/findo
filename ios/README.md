@@ -17,8 +17,13 @@ ios/
 ```
 
 `Findo.xcodeproj` is **generated**, not committed (see `.gitignore`) — this
-avoids `.pbxproj` merge conflicts. `project.yml` is the thing to edit and
-review in diffs; regenerate the `.xcodeproj` locally whenever it changes.
+avoids `.pbxproj` merge conflicts. So are `Findo/Info.plist` and
+`FindoFileProvider/Info.plist`: XcodeGen *writes* the file at a target's
+`info.path` from that target's `info.properties` in `project.yml` on every
+`xcodegen generate` — it's not a "read this file and leave it alone"
+reference, so hand-editing either plist directly gets silently discarded
+the next time someone regenerates. `project.yml` is the one thing to edit
+and review in diffs.
 
 ## One-time setup (on your Mac — none of this can be done from this session)
 
@@ -30,10 +35,12 @@ review in diffs; regenerate the `.xcodeproj` locally whenever it changes.
    - `com.timhoff.findo` → your own reverse-DNS bundle id prefix (e.g.
      `com.yourname.findo`)
    - `group.com.timhoff.findo` → an App Group id of your choosing, kept
-     **identical** in all four places it appears: `Findo/Findo.entitlements`,
-     `FindoFileProvider/FindoFileProvider.entitlements`,
-     `FindoFileProvider/Info.plist`'s `NSExtensionFileProviderDocumentGroup`,
-     and `FindoKit/Sources/FindoKit/BackendConfig.swift`'s `appGroupID`
+     **identical** in all three places it appears: `Findo/Findo.entitlements`,
+     `FindoFileProvider/FindoFileProvider.entitlements`, and
+     `FindoKit/Sources/FindoKit/BackendConfig.swift`'s `appGroupID` (the
+     fourth-looking spot, `FindoFileProvider`'s
+     `NSExtensionFileProviderDocumentGroup`, is set in `project.yml`
+     itself now — see below)
 4. **Generate the project**: `cd ios && xcodegen generate`, then open
    `Findo.xcodeproj`.
 5. **Signing**: `project.yml` deliberately doesn't set a Team — Xcode's
@@ -70,18 +77,17 @@ review in diffs; regenerate the `.xcodeproj` locally whenever it changes.
 ## Troubleshooting
 
 - **Install fails with "does not define an NSExtension dictionary in its
-  Info.plist"**: something (usually Xcode's own "Fix Issue" button on an
-  earlier signing error) set `GENERATE_INFOPLIST_FILE = YES` on
-  `FindoFileProvider` directly in the `.xcodeproj`. That build setting
-  makes Xcode synthesize the Info.plist from `INFOPLIST_KEY_*` build
-  settings and silently drop arbitrary dictionaries like `NSExtension`
-  from the real `Info.plist` file, even though `INFOPLIST_FILE` still
-  points at it. Fix: quit Xcode, `rm -rf Findo.xcodeproj`, `xcodegen
-  generate` again, wipe `~/Library/Developer/Xcode/DerivedData/Findo-*`,
-  reopen, re-pick your Team on all three targets. Never use Xcode's "Fix
-  Issue" for a signing/Info.plist error — it edits the generated project
-  directly, which won't survive (or will half-survive) the next
-  regenerate; make the fix in `project.yml` instead.
+  Info.plist"**: this means `FindoFileProvider/Info.plist` on disk is
+  missing its `NSExtension` dict — almost certainly because it was
+  hand-edited (directly, or via Xcode's "Fix Issue" for an earlier
+  signing/Info.plist error) instead of edited through `project.yml`'s
+  `info.properties`. `xcodegen generate` **writes** each target's
+  Info.plist from its `info.properties` every time it runs — it does not
+  read and preserve whatever's already at `info.path` — so any custom key
+  added directly to the file gets silently dropped on the next generate.
+  Both `Findo/Info.plist` and `FindoFileProvider/Info.plist` are generated
+  output now (gitignored, not committed) for exactly this reason: edit
+  their content in `project.yml`, never in the file itself.
 
 ## Known MVP limitations
 

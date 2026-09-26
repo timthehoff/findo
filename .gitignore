@@ -4,8 +4,14 @@
 /backend/findo-server
 
 # iOS: Findo.xcodeproj is generated from ios/project.yml via `xcodegen
-# generate` (see ios/README.md), so it's never committed.
+# generate` (see ios/README.md), so it's never committed. Same for the two
+# targets' Info.plist files: XcodeGen writes them from project.yml's
+# info.properties on every generate (that's a write, not a merge — a
+# hand-edited file at that path gets silently overwritten), so they're
+# generated output too, not source.
 /ios/*.xcodeproj
 /ios/*.xcworkspace
 /ios/DerivedData/
+/ios/Findo/Info.plist
+/ios/FindoFileProvider/Info.plist
 **/xcuserdata/

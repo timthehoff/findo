@@ -2,14 +2,20 @@
 # this file (via `xcodegen generate`) rather than committed, so the project
 # file itself never causes merge conflicts — see ios/README.md.
 #
+# Custom Info.plist keys (NSExtension, ATS, etc.) live here under each
+# target's `info.properties`, not in a hand-maintained Info.plist file:
+# `info.path` is where XcodeGen *writes* the generated plist, not a file it
+# reads and leaves alone, so a hand-authored file at that path gets
+# silently overwritten (custom keys dropped) on every `xcodegen generate`.
+# See ios/README.md's Troubleshooting section.
+#
 # Placeholders to replace before generating, all tied to your own Apple
 # Developer account (never invented/guessed — see CLAUDE.md "Environment /
 # secrets"):
 #   - `com.timhoff.findo`  -> your own reverse-DNS bundle id prefix
-#   - `group.com.timhoff.findo` (in both .entitlements files,
-#     FindoFileProvider/Info.plist's NSExtensionFileProviderDocumentGroup,
-#     and FindoKit/Sources/FindoKit/BackendConfig.swift's appGroupID)
-#     -> an App Group id registered to your team, all four kept identical
+#   - `group.com.timhoff.findo` (below, in both .entitlements files, and in
+#     FindoKit/Sources/FindoKit/BackendConfig.swift's appGroupID)
+#     -> an App Group id registered to your team, all three kept identical
 #
 # No DEVELOPMENT_TEAM setting here on purpose: pick your team by name in
 # each target's Signing & Capabilities tab in Xcode instead of hunting for
@@ -48,14 +54,19 @@ targets:
     platform: iOS
     sources:
       - path: FindoFileProvider/Sources
-    # Don't add GENERATE_INFOPLIST_FILE here (unlike FindoKit above): with
-    # a custom info.path also set, it makes Xcode synthesize the plist
-    # from INFOPLIST_KEY_* settings and silently drop the NSExtension
-    # dict this file has, which breaks install with a cryptic
-    # "does not define an NSExtension dictionary" error. See
-    # ios/README.md's Troubleshooting section.
     info:
       path: FindoFileProvider/Info.plist
+      properties:
+        CFBundleDisplayName: Findo
+        NSExtension:
+          NSExtensionFileProviderDocumentGroup: group.com.timhoff.findo
+          NSExtensionPointIdentifier: com.apple.fileprovider-nonui
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).FileProviderExtension
+        # The backend is a plain-HTTP service on the home LAN (see
+        # CLAUDE.md "Why this exists"); this allows that without disabling
+        # ATS for everything else.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
     entitlements:
       path: FindoFileProvider/FindoFileProvider.entitlements
     settings:
@@ -73,6 +84,14 @@ targets:
       - path: Findo/Assets.xcassets
     info:
       path: Findo/Info.plist
+      properties:
+        CFBundleDisplayName: Findo
+        UILaunchScreen: {}
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        NSLocalNetworkUsageDescription: >-
+          Findo connects to your Findo backend running on your home
+          network to list and fetch NAS files.
     entitlements:
       path: Findo/Findo.entitlements
     settings:
