@@ -48,6 +48,12 @@ targets:
     platform: iOS
     sources:
       - path: FindoFileProvider/Sources
+    # Don't add GENERATE_INFOPLIST_FILE here (unlike FindoKit above): with
+    # a custom info.path also set, it makes Xcode synthesize the plist
+    # from INFOPLIST_KEY_* settings and silently drop the NSExtension
+    # dict this file has, which breaks install with a cryptic
+    # "does not define an NSExtension dictionary" error. See
+    # ios/README.md's Troubleshooting section.
     info:
       path: FindoFileProvider/Info.plist
     entitlements:

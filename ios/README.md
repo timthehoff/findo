@@ -67,6 +67,22 @@ review in diffs; regenerate the `.xcodeproj` locally whenever it changes.
   file downloads it via `GET /files/content` and opens it in Quick Look /
   whatever app claims its type.
 
+## Troubleshooting
+
+- **Install fails with "does not define an NSExtension dictionary in its
+  Info.plist"**: something (usually Xcode's own "Fix Issue" button on an
+  earlier signing error) set `GENERATE_INFOPLIST_FILE = YES` on
+  `FindoFileProvider` directly in the `.xcodeproj`. That build setting
+  makes Xcode synthesize the Info.plist from `INFOPLIST_KEY_*` build
+  settings and silently drop arbitrary dictionaries like `NSExtension`
+  from the real `Info.plist` file, even though `INFOPLIST_FILE` still
+  points at it. Fix: quit Xcode, `rm -rf Findo.xcodeproj`, `xcodegen
+  generate` again, wipe `~/Library/Developer/Xcode/DerivedData/Findo-*`,
+  reopen, re-pick your Team on all three targets. Never use Xcode's "Fix
+  Issue" for a signing/Info.plist error — it edits the generated project
+  directly, which won't survive (or will half-survive) the next
+  regenerate; make the fix in `project.yml` instead.
+
 ## Known MVP limitations
 
 - **Read-only.** The backend has no write/save-back API yet, so items only
