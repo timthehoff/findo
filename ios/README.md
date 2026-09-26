@@ -34,16 +34,19 @@ review in diffs; regenerate the `.xcodeproj` locally whenever it changes.
      `FindoFileProvider/FindoFileProvider.entitlements`,
      `FindoFileProvider/Info.plist`'s `NSExtensionFileProviderDocumentGroup`,
      and `FindoKit/Sources/FindoKit/BackendConfig.swift`'s `appGroupID`
-   - `YOUR_TEAM_ID` → your Apple Developer Team ID (Xcode → Settings →
-     Accounts, click your Apple ID; or developer.apple.com/account →
-     Membership)
 4. **Generate the project**: `cd ios && xcodegen generate`, then open
    `Findo.xcodeproj`.
-5. **Signing**: for each of the three targets (Findo, FindoFileProvider,
-   FindoKit) in Signing & Capabilities, confirm your Team is selected. If
-   Xcode complains it can't provision the App Group, add it manually once
-   at developer.apple.com/account/resources/identifiers/list/applicationGroup
-   — a free (non-paid) Apple ID account can do this for local development.
+5. **Signing**: `project.yml` deliberately doesn't set a Team — Xcode's
+   Accounts pane buries the raw Team ID differently across versions, so
+   don't go hunting for it there. Instead, for each of the three targets
+   (Findo, FindoFileProvider, FindoKit) in Signing & Capabilities, open the
+   **Team** pop-up and pick your team by name (shown as "Your Name
+   (Personal Team)") — Xcode fills in the ID for you. Do this for all
+   three, including FindoKit (it's an embedded framework but still needs a
+   team to build). If you want the choice to survive a future `xcodegen
+   generate` instead of reselecting each time, look up the ID it picked
+   with `grep -m1 DEVELOPMENT_TEAM Findo.xcodeproj/project.pbxproj` and add
+   `DEVELOPMENT_TEAM: <that ID>` under `settings.base` in `project.yml`.
 
 ## Running it
 
