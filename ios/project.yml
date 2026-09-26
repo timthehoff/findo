@@ -41,6 +41,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.findo.FindoKit
         SKIP_INSTALL: true
+        GENERATE_INFOPLIST_FILE: true
 
   FindoFileProvider:
     type: app-extension
