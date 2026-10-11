@@ -1,9 +1,9 @@
 # Findo 🐾
 
 Every good dog knows how to fetch. Findo does the same thing for a NAS: it
-crawls your files over SMB, builds a searchable index, and serves them back
-over HTTP so Siri and Spotlight on iOS can find them, and native apps
-(Numbers, Word, Preview, etc.) can open and edit them directly.
+crawls your files over SMB, builds a searchable index, and serves a polished
+web UI (pin it to your phone's home screen) for finding them fast and
+previewing or downloading them over HTTP.
 
 ## Why this exists
 
@@ -11,33 +11,30 @@ over HTTP so Siri and Spotlight on iOS can find them, and native apps
   shares connected via the Files app. A good dog can't fetch what it can't
   smell.
 - The NAS only speaks SMB and NFS natively — no REST/S3 API, no vendor SDK
-  to lean on instead.
-- Apple's own iWork apps (Numbers/Pages/Keynote) dropped WebDAV support in
-  2020, so WebDAV wouldn't give round-trip editing there either, even if we
-  wanted to fetch that way.
-- The correct extension point for "appear as a location other apps can open
-  AND save to" is a **File Provider Extension** (the same mechanism
-  Dropbox/OneDrive/Google Drive use) — not WebDAV, not a bespoke HTTP-only
-  integration.
+  to lean on instead, and browsers can't speak SMB at all.
 
 ## Architecture
 
-Two components:
+One component: a **backend index/proxy service** (self-hosted on the home
+network, e.g. Docker) — it talks to the NAS over SMB, crawls and indexes file
+metadata, exposes an HTTP API (search, listing, Range-aware streamed read),
+and serves the embedded web UI. See [`backend/`](backend/).
 
-1. **Backend index/proxy service** (self-hosted on the home network, e.g.
-   Docker) — talks to the NAS over SMB, crawls and indexes file metadata, and
-   exposes an HTTP API for search, listing, streamed file read (Range-aware),
-   and eventually file write (save-back from the iOS app). See
-   [`backend/`](backend/).
+### Opening and editing files
 
-2. **iOS app "Findo"** *(not started yet)* — a File Provider Extension so the
-   NAS appears as a location in the Files/document picker UI in any app, plus
-   App Intents + Core Spotlight so Siri/Spotlight can find and open indexed
-   files, plus Quick Look integration for fast in-app preview.
+- **Preview / download:** browser-renderable types (PDF, images, text, audio,
+  video) open inline from the proxy; everything else (Office, iWork,
+  archives, HTML/SVG) downloads.
+- **Editing:** the web UI is read-only. Each result has a **Copy path** button
+  that copies the file's `smb://host/share/path` address and shows its
+  share-relative location. Connect once via Files > Connect to Server (iOS) or
+  Finder > Connect to Server (macOS), then open the file there so Numbers,
+  Word, etc. save back to the NAS in place. iOS doesn't open `smb://` links
+  from Safari, which is why this is copy-and-paste.
 
-For NAS credentials, network topology, iOS developer account status, and
-other environment specifics, see `.env` (not committed — copy from
-`backend/.env.example`) and ask the project owner rather than guessing.
+For NAS credentials and other environment specifics, see `backend/.env`
+(not committed — copy from `backend/.env.example`) and ask the project owner
+rather than guessing.
 
 Current build status and what's implemented lives in
 [`.claude/CLAUDE.md`](.claude/CLAUDE.md).

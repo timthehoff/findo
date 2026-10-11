@@ -56,3 +56,7 @@ mark { background: var(--mark-bg); color: inherit; padding: 0 1px; border-radius
 .badge.type-zip  { background: var(--type-zip-bg);  color: var(--type-zip-fg); }
 .badge.type-txt  { background: var(--type-txt-bg);  color: var(--type-txt-fg); }
 .badge.type-file { background: var(--type-file-bg); color: var(--type-file-fg); }
+
+.subpath { max-width: 24rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.actions { white-space: nowrap; }
+.actions a { margin-left: 0.5rem; }

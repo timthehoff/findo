@@ -44,6 +44,33 @@ function highlight(name, query) {
     + escapeHTML(name.slice(idx + query.length));
 }
 
+// smbURL builds the address a user pastes into Finder's or Files'
+// "Connect to Server". Segments are encoded individually so slashes survive.
+function smbURL(vol, path) {
+  const segs = [vol.share, ...path.split('/')].map(encodeURIComponent);
+  return `smb://${vol.host}/${segs.join('/')}`;
+}
+
+// copyText falls back to a hidden textarea because navigator.clipboard
+// needs a secure context, and the dashboard is usually served over plain
+// http on the LAN.
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return;
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    ta.remove();
+    if (!ok) throw new Error('copy failed');
+  }
+}
+
 async function loadVolumes() {
   try {
     const body = await getJSON('/volumes');
@@ -93,7 +120,7 @@ function renderBreadcrumbs() {
 
 function renderResults(entries, query) {
   if (entries.length === 0) {
-    resultsBody.innerHTML = '<tr><td colspan="6" class="muted">No results — try a different scent.</td></tr>';
+    resultsBody.innerHTML = '<tr><td colspan="7" class="muted">No results — try a different scent.</td></tr>';
     return;
   }
 
@@ -101,20 +128,39 @@ function renderResults(entries, query) {
     const badge = fileTypeBadge(f.ext, f.isDir);
     const vol = volumesById.get(String(f.volumeId));
     const nameHTML = highlight(f.name, query);
+    const contentURL = `/files/content?volume=${f.volumeId}&path=${encodeURIComponent(f.path)}`;
+    const sharePath = vol ? `${vol.share}/${f.path}` : f.path;
     const nameCell = f.isDir
       ? `<a href="#" data-dir="${escapeHTML(f.path)}" data-vol="${f.volumeId}">${nameHTML}</a>`
-      : `<a href="/files/content?volume=${f.volumeId}&path=${encodeURIComponent(f.path)}" target="_blank" rel="noopener">${nameHTML}</a>`;
+      : `<a href="${contentURL}" target="_blank" rel="noopener">${nameHTML}</a>`;
     return `
       <tr>
         <td>${nameCell}</td>
         <td><span class="badge type-${badge.cls}">${badge.label}</span></td>
         <td>${vol ? escapeHTML(vol.name) : f.volumeId}</td>
-        <td>${escapeHTML(f.dir ? '/' + f.dir : '/')}</td>
+        <td class="subpath" title="${escapeHTML(sharePath)}">${escapeHTML(sharePath)}</td>
         <td>${f.isDir ? '' : humanSize(f.size)}</td>
         <td>${new Date(f.modTime * 1000).toLocaleString()}</td>
+        <td class="actions">
+          <button class="small" data-copy="${escapeHTML(f.path)}" data-vol="${f.volumeId}">Copy path</button>
+          ${f.isDir ? '' : `<a href="${contentURL}&download=1">Download</a>`}
+        </td>
       </tr>
     `;
   }).join('');
+
+  resultsBody.querySelectorAll('button[data-copy]').forEach(b => {
+    b.addEventListener('click', async () => {
+      const vol = volumesById.get(b.dataset.vol);
+      if (!vol) return;
+      try {
+        await copyText(smbURL(vol, b.dataset.copy));
+        toast('Path copied — paste it into Connect to Server', 'success');
+      } catch (e) {
+        toast('Could not copy: ' + e.message, 'error');
+      }
+    });
+  });
 
   resultsBody.querySelectorAll('a[data-dir]').forEach(a => {
     a.addEventListener('click', (ev) => {
@@ -133,7 +179,7 @@ async function loadBrowse() {
 
   const volId = volumeSelect.value;
   if (!volId) {
-    resultsBody.innerHTML = '<tr><td colspan="6" class="muted">Pick a volume to browse, or type above to search across all volumes.</td></tr>';
+    resultsBody.innerHTML = '<tr><td colspan="7" class="muted">Pick a volume to browse, or type above to search across all volumes.</td></tr>';
     return;
   }
 

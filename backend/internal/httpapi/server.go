@@ -383,6 +383,7 @@ func (s *Server) handleContent(w http.ResponseWriter, r *http.Request) {
 	}
 	defer f.Close()
 
+	setContentHeaders(w.Header(), info.Name(), r.URL.Query().Get("download") == "1")
 	http.ServeContent(w, r, info.Name(), info.ModTime(), f)
 }
 
