@@ -1,76 +1,60 @@
 # Findo
 
-An iOS app that makes files on any SMB-accessible NAS (developed against a
-UniFi UNAS/UNAS Pro, but not limited to it) searchable via Siri/Spotlight
-and editable in native apps (Numbers, Word, etc.), without relying on the
-Files app's limited SMB support.
+A self-hosted web UI (pinnable to a phone's home screen) that makes files on
+any SMB-accessible NAS (developed against a UniFi UNAS/UNAS Pro, but not
+limited to it) searchable and previewable from any device.
 
 ## Why this exists (don't relitigate these constraints)
 
 - iOS's native Siri/Spotlight indexing doesn't reach files on SMB network
   shares connected via the Files app.
-- The NAS only speaks SMB and NFS natively — no REST/S3 API, no vendor SDK.
-- Apple's own iWork apps (Numbers/Pages/Keynote) dropped WebDAV support in
-  2020, so WebDAV won't give round-trip editing there either.
-- The correct extension point for "appear as a location other apps can open
-  AND save to" is a **File Provider Extension** (like Dropbox/OneDrive/Google
-  Drive use) — not WebDAV, not a bespoke HTTP-only integration.
+- The NAS only speaks SMB and NFS natively — no REST/S3 API, no vendor SDK —
+  and browsers can't speak SMB, so a backend service has to crawl and proxy.
+- **Scope is deliberately web-only.** There is no iOS app, File Provider
+  Extension, App Intents/Spotlight integration, or write/save-back API, and
+  none is planned. WebDAV was also ruled out (iWork dropped it in 2020).
 
 ## Target architecture
 
-1. **Backend index/proxy service** (self-hosted on the home network, e.g.
-   Docker), in `backend/`:
-   - Talks to the NAS over SMB (has full driver support, unlike iOS).
-   - Crawls and indexes file metadata (name, path, type, mtime, size).
-   - Exposes an HTTP API: search, list, streamed file read (must support
-     HTTP Range / 206 Partial Content for scrubbing/resuming), and file write
-     (for save-back from the iOS app).
-   - Tracks a version/mtime per file so the client can detect conflicts if
-     the file changed on the NAS outside of the app.
+**Backend index/proxy service** (self-hosted on the home network, e.g.
+Docker), in `backend/`:
+- Talks to the NAS over SMB (has full driver support, unlike iOS).
+- Crawls and indexes file metadata (name, path, type, mtime, size).
+- Exposes an HTTP API: search, list, and streamed file read (HTTP Range /
+  206 Partial Content for scrubbing/resuming).
+- Serves the embedded dashboard/search web UI.
 
-2. **iOS app "Findo"** (not started yet):
-   - **File Provider Extension**: appears as a location in the Files/document
-     picker UI in any app (Numbers, Word, Preview, etc.). Implements item
-     enumeration, on-demand content fetch (streamed from the backend,
-     Range-aware), and push-back of edited files to the backend on save.
-     Surfaces a conflict if the backend's version doesn't match what the
-     extension last fetched.
-   - **App Intents + Core Spotlight**: registers indexed files as
-     `IndexedEntity` so Siri/Spotlight surface them in search, plus an Open
-     intent so Siri can open a matched file (deep-links into the File
-     Provider Extension / opens via Quick Look).
-   - **Quick Look integration**: `QLPreviewController` pointed at the
-     backend's streaming URLs for fast in-app preview (works directly with
-     remote URLs given correct Content-Type/Content-Length and Range
-     support).
-   - Branding: playful, dog-themed. App name is "Findo" (a good dog finds
-     and fetches things). Icon: simple line-art dog, maybe with a magnifying
-     glass or a file in its mouth. Loading/empty states can have light
-     dog-themed copy ("Fetching your files...").
-
-Build incrementally: backend first (connect to SMB, list files, serve one
-back over HTTP with Range support), then the iOS side (minimal File Provider
-Extension that browses/opens a file from the backend, then save-back, then
-App Intents/Spotlight indexing).
+**Opening and editing files:** the UI is read-only.
+- Browser-renderable types (PDF, images, text, audio, video) are served
+  `Content-Disposition: inline`; everything else, and anything with
+  `?download=1`, is an attachment. HTML/SVG are never inline (XSS risk on the
+  UI's origin). See `internal/httpapi/content.go`.
+- To edit, each search result has a "Copy path" button (copies
+  `smb://host/share/path`) and shows its share-relative location. The user
+  connects once via Files/Finder > Connect to Server and edits in place there.
+  Researched: iOS does not hand tapped `smb://` links to Files, hence
+  copy-and-paste rather than a link.
+- Branding: playful, dog-themed. App name is "Findo" (a good dog finds and
+  fetches things). Loading/empty states can have light dog-themed copy.
 
 ## Current status
 
-Backend Milestone 1, plus multi-volume config and crawl monitoring: SMB
-crawl → SQLite index → read-only HTTP API (list, search, Range-aware
-content, health/stats, manual reindex), kept fresh between crawls by a live
-change-notify listener. One server can run several independently-crawled
-SMB volumes at once, configured at runtime (not via `.env`) through
-`/volumes` and the dashboard, with passwords encrypted at rest
-(`internal/crypto`, AES-256-GCM under `FINDO_MASTER_KEY`). Every crawl run
-is recorded with why it started (`manual`/`startup`/`periodic`/`resync`),
-duration, and files/bytes seen or removed (`GET /volumes/{id}/crawl-runs`),
-and each volume's change-notify listener reports its own connected/last-
-event/resync-count state. The dashboard is two pages — `index.html`
-(volume config, crawl/watch monitoring, a per-volume storage/largest-files
-breakdown) and `search.html` (live search, breadcrumb directory browsing)
-— with an explicit light/dark/system theme toggle and toast notifications
-for action feedback. No write/save-back API yet, no conflict-version
-tracking yet, no iOS project in the repo yet.
+Backend is feature-complete for the web-only scope: SMB crawl → SQLite
+index → read-only HTTP API (list, search, Range-aware content with
+inline/download handling, health/stats, manual reindex), kept fresh between
+crawls by a live change-notify listener. One server can run several
+independently-crawled SMB volumes at once, configured at runtime (not via
+`.env`) through `/volumes` and the dashboard, with passwords encrypted at
+rest (`internal/crypto`, AES-256-GCM under `FINDO_MASTER_KEY`). Every crawl
+run is recorded with why it started (`manual`/`startup`/`periodic`/
+`resync`), duration, and files/bytes seen or removed
+(`GET /volumes/{id}/crawl-runs`), and each volume's change-notify listener
+reports its own connected/last-event/resync-count state. The dashboard is
+two pages — `index.html` (volume config, crawl/watch monitoring, a
+per-volume storage/largest-files breakdown) and `search.html` (live search,
+breadcrumb directory browsing, copy-path and download actions) — with an
+explicit light/dark/system theme toggle and toast notifications for action
+feedback.
 
 ## Environment / secrets
 
