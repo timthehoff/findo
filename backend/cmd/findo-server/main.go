@@ -31,7 +31,7 @@ func main() {
 	}
 	defer idx.Close()
 
-	srv := httpapi.NewServer(idx, cfg.MasterKey)
+	srv := httpapi.NewServer(idx, cfg.MasterKey, version)
 	ctx := context.Background()
 
 	volumes, err := idx.ListVolumes()

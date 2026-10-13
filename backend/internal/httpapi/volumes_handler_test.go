@@ -25,7 +25,7 @@ func newTestServerNoVolumes(t *testing.T, smb *fakeSMB) *Server {
 	}
 	t.Cleanup(func() { idx.Close() })
 
-	srv := NewServer(idx, make([]byte, crypto.KeySize))
+	srv := NewServer(idx, make([]byte, crypto.KeySize), "dev")
 	srv.newSMB = func(host, share, user, pass string) smbConnector { return smb }
 	return srv
 }

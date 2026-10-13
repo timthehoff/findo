@@ -67,6 +67,10 @@ generates `FINDO_MASTER_KEY` once and never overwrites an existing `.env`).
 `ghcr.io/timthehoff/findo` on `vX.Y.Z` tags. Register NAS volumes by IP or
 DNS name, not `.local` mDNS names (they don't resolve in a bridge-networked
 container).
+`GET /version` (`httpapi/version.go`) reports the running version and, for
+release builds, whether GitHub's latest release is newer (looked up
+server-side, cached 6h, failures retried hourly); `js/version.js` shows it
+as a nav badge on both pages. `dev` builds skip the lookup.
 
 ## Environment / secrets
 
