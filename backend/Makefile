@@ -1,6 +1,9 @@
 BINARY := findo-server
 PKG    := ./cmd/findo-server
 
+# Dev port; 8080 is the production default. Env beats .env, so this wins.
+DEV_ADDR ?= :8081
+
 .PHONY: build check fix test run
 
 build:
@@ -22,4 +25,4 @@ test:
 	go test -race ./...
 
 run:
-	go run $(PKG)
+	HTTP_ADDR=$(DEV_ADDR) go run $(PKG)

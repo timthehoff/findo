@@ -68,7 +68,7 @@ All run from `backend/`:
 | `make check` | `gofmt -l` + `go vet` |
 | `make fix` | `gofmt -w` to auto-format |
 | `make test` | `go test -race ./...` |
-| `make run` | `go run ./cmd/findo-server` |
+| `make run` | `go run ./cmd/findo-server` on `:8081` (override with `DEV_ADDR`) |
 
 CI runs `make check test build` on every push/PR.
 
@@ -84,7 +84,7 @@ cd backend
 docker compose -f docker-compose.dev.yml up --build
 ```
 
-Then visit `http://localhost:8080/` for the dashboard and add the samba
+Then visit `http://localhost:8081/` for the dashboard and add the samba
 container as a volume (host `samba`, share `testshare`, user/pass
 `testuser`/`testpass`), or hit the API directly — see the compose file's
 comment for the equivalent `curl -X POST /volumes` command.

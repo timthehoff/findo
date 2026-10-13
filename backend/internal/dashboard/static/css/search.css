@@ -60,3 +60,19 @@ mark { background: var(--mark-bg); color: inherit; padding: 0 1px; border-radius
 .subpath { max-width: 24rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 .actions { white-space: nowrap; }
 .actions a { margin-left: 0.5rem; }
+
+/* Phone: each result row becomes a card */
+@media (max-width: 700px) {
+  .search-bar { flex-direction: column; }
+  #results, #results tbody, #results tr, #results td { display: block; }
+  #results thead { display: none; }
+  #results tr { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 0.6rem 0.75rem; margin-bottom: 0.6rem; }
+  #results td { border: 0; padding: 0; }
+  #results td:nth-child(1) { font-weight: 600; word-break: break-word; margin-bottom: 0.3rem; }
+  #results td:nth-child(2), #results td:nth-child(5), #results td:nth-child(6) { display: inline-block; margin-right: 0.6rem; font-size: 0.8rem; color: var(--muted); }
+  #results td:nth-child(2) { color: inherit; }
+  #results td:nth-child(3) { display: none; }
+  #results td.subpath { max-width: none; font-size: 0.8rem; margin: 0.3rem 0; }
+  #results td.actions { display: flex; align-items: center; gap: 0.75rem; margin-top: 0.4rem; }
+  #results td.actions a { margin-left: 0; }
+}
