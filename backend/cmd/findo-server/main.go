@@ -7,6 +7,7 @@ package main
 import (
 	"context"
 	"log"
+	"net"
 	"net/http"
 	"time"
 
@@ -48,7 +49,7 @@ func main() {
 		go startVolumeWithRetry(ctx, srv, vol, 10, 3*time.Second)
 	}
 
-	log.Printf("findo-server listening on %s", cfg.HTTPAddr)
+	log.Printf("findo-server listening on %s", listenURL(cfg.HTTPAddr))
 	if err := http.ListenAndServe(cfg.HTTPAddr, srv.Routes()); err != nil {
 		log.Fatal(err)
 	}
@@ -70,4 +71,18 @@ func startVolumeWithRetry(ctx context.Context, srv *httpapi.Server, vol index.Vo
 		}
 	}
 	log.Printf("volume %d (%s): giving up after %d attempts: %v", vol.ID, vol.Name, attempts, err)
+}
+
+// listenURL turns a listen address into a clickable URL for the startup log;
+// a wildcard or empty host becomes localhost since that's what a browser on
+// this machine can actually open.
+func listenURL(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "localhost"
+	}
+	return "http://" + net.JoinHostPort(host, port) + "/"
 }

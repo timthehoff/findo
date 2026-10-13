@@ -156,3 +156,16 @@ dialog label { font-size: 0.85rem; display: flex; flex-direction: column; gap: 0
 .toast.show { opacity: 1; transform: translateY(0); }
 .toast-success { border-color: var(--badge-ok-fg); }
 .toast-error { border-color: var(--badge-bad-fg); }
+
+/* Phone layout */
+@media (max-width: 700px) {
+  .topnav { gap: 0.75rem; flex-wrap: wrap; }
+  .cards { gap: 0.5rem; }
+  .card { flex: 1 1 40%; min-width: 0; }
+  dialog { min-width: 0; width: min(92vw, 420px); }
+  .toast-container { left: 1rem; max-width: none; }
+}
+@media (pointer: coarse) {
+  button, input[type=text], input[type=password], input[type=search], select { min-height: 44px; }
+  button.small { min-height: 36px; }
+}

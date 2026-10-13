@@ -19,3 +19,8 @@
 .bar-track { background: var(--border); border-radius: 4px; height: 12px; overflow: hidden; }
 .bar-fill { background: var(--chart-hue); height: 100%; border-radius: 4px; min-width: 2px; }
 .bar-value { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.history, .insights { overflow-x: auto; }
+@media (max-width: 700px) {
+  .volume-header { align-items: flex-start; }
+}
