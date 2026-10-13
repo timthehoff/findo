@@ -122,6 +122,11 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /files", s.handleList)
 	mux.HandleFunc("GET /search", s.handleSearch)
 	mux.HandleFunc("GET /files/content", s.handleContent)
+	// Same handler with the file's name as a cosmetic URL suffix: browsers
+	// title a tab after the URL's last segment (images, text, media), so
+	// links end in the real filename instead of "content". The name is
+	// ignored; volume and path still come from the query string.
+	mux.HandleFunc("GET /files/content/{name...}", s.handleContent)
 	mux.HandleFunc("GET /volumes", s.handleListVolumes)
 	mux.HandleFunc("POST /volumes", s.handleCreateVolume)
 	mux.HandleFunc("PUT /volumes/{id}", s.handleUpdateVolume)
@@ -131,6 +136,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /volumes/{id}/reindex", s.handleReindex)
 	mux.HandleFunc("GET /volumes/{id}/crawl-runs", s.handleCrawlRuns)
 	mux.HandleFunc("GET /volumes/{id}/insights", s.handleVolumeInsights)
+	// The search page used to live at /search.html; keep old bookmarks and
+	// home-screen pins working now that it's the landing page.
+	mux.Handle("GET /search.html", http.RedirectHandler("/", http.StatusMovedPermanently))
 	mux.Handle("GET /", dashboard.Handler())
 	return logMiddleware(mux)
 }
@@ -322,6 +330,13 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, stats)
 }
 
+// wantsHidden reports whether the request opted in to dotfiles (?hidden=1);
+// they're left out of listings and search by default.
+func wantsHidden(r *http.Request) bool {
+	v := r.URL.Query().Get("hidden")
+	return v == "1" || v == "true"
+}
+
 func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	volumeID, err := parseVolumeIDParam(r)
 	if err != nil {
@@ -329,7 +344,7 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dir := r.URL.Query().Get("path")
-	files, err := s.idx.List(volumeID, dir)
+	files, err := s.idx.List(volumeID, dir, wantsHidden(r))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -355,7 +370,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	files, err := s.idx.Search(volumeID, q, limit)
+	files, err := s.idx.Search(volumeID, q, limit, wantsHidden(r))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

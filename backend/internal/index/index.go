@@ -6,6 +6,7 @@ package index
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"path"
 	"strings"
@@ -58,6 +59,11 @@ func (idx *Index) Close() error {
 	return idx.db.Close()
 }
 
+// ErrVolumeNameTaken is returned when a volume create/update would reuse
+// another volume's name (compared case-insensitively). Names are what the
+// UI puts in URLs, so they have to identify a volume uniquely.
+var ErrVolumeNameTaken = errors.New("a volume with that name already exists")
+
 func (idx *Index) migrate() error {
 	_, err := idx.db.Exec(`
 		CREATE TABLE IF NOT EXISTS volumes (
@@ -104,7 +110,66 @@ func (idx *Index) migrate() error {
 		);
 		CREATE INDEX IF NOT EXISTS idx_crawl_runs_volume ON crawl_runs(volume_id, id DESC);
 	`)
+	if err != nil {
+		return err
+	}
+	if err := idx.dedupeVolumeNames(); err != nil {
+		return err
+	}
+	_, err = idx.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_volumes_name ON volumes(name COLLATE NOCASE)`)
 	return err
+}
+
+// dedupeVolumeNames renames volumes that predate the unique-name rule so the
+// unique index can be created: the oldest keeps its name, later clashes
+// become "name (2)", "name (3)", and so on.
+func (idx *Index) dedupeVolumeNames() error {
+	rows, err := idx.db.Query(`SELECT id, name FROM volumes ORDER BY id`)
+	if err != nil {
+		return err
+	}
+	type vol struct {
+		id   int64
+		name string
+	}
+	var vols []vol
+	for rows.Next() {
+		var v vol
+		if err := rows.Scan(&v.id, &v.name); err != nil {
+			rows.Close()
+			return err
+		}
+		vols = append(vols, v)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	// all holds every name in use (lowercased) so a generated "name (2)"
+	// can't collide with a volume that already has that name.
+	all := map[string]bool{}
+	for _, v := range vols {
+		all[strings.ToLower(v.name)] = true
+	}
+	first := map[string]bool{}
+	for _, v := range vols {
+		key := strings.ToLower(v.name)
+		if !first[key] {
+			first[key] = true
+			continue
+		}
+		name := v.name
+		for n := 2; all[strings.ToLower(name)]; n++ {
+			name = fmt.Sprintf("%s (%d)", v.name, n)
+		}
+		all[strings.ToLower(name)] = true
+		if _, err := idx.db.Exec(`UPDATE volumes SET name = ? WHERE id = ?`, name, v.id); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // UpsertBatch inserts or updates every given file in one transaction,
@@ -339,11 +404,15 @@ func nullIfEmpty(s string) interface{} {
 }
 
 // List returns immediate children of dir ("" for the volume's root).
-func (idx *Index) List(volumeID int64, dir string) ([]File, error) {
+func (idx *Index) List(volumeID int64, dir string, includeHidden bool) ([]File, error) {
 	dir = normalizeDir(dir)
+	hidden := ""
+	if !includeHidden {
+		hidden = ` AND name NOT LIKE '.%'`
+	}
 	rows, err := idx.db.Query(
 		`SELECT volume_id, path, name, dir, ext, is_dir, size, mod_time FROM files
-		 WHERE volume_id = ? AND dir = ? ORDER BY is_dir DESC, name ASC`,
+		 WHERE volume_id = ? AND dir = ?`+hidden+` ORDER BY is_dir DESC, name ASC`,
 		volumeID, dir,
 	)
 	if err != nil {
@@ -355,27 +424,26 @@ func (idx *Index) List(volumeID int64, dir string) ([]File, error) {
 
 // Search returns files/dirs whose name contains q (case-insensitive).
 // volumeID == 0 searches across every volume; otherwise it's scoped to one.
-func (idx *Index) Search(volumeID int64, q string, limit int) ([]File, error) {
+// Unless includeHidden is set, dotfiles and anything inside a dot-directory
+// (any path component starting with ".") are left out.
+func (idx *Index) Search(volumeID int64, q string, limit int, includeHidden bool) ([]File, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
-	pattern := "%" + likeEscape(q) + "%"
-
-	var rows *sql.Rows
-	var err error
-	if volumeID == 0 {
-		rows, err = idx.db.Query(
-			`SELECT volume_id, path, name, dir, ext, is_dir, size, mod_time FROM files
-			 WHERE name LIKE ? ESCAPE '\' ORDER BY name ASC LIMIT ?`,
-			pattern, limit,
-		)
-	} else {
-		rows, err = idx.db.Query(
-			`SELECT volume_id, path, name, dir, ext, is_dir, size, mod_time FROM files
-			 WHERE volume_id = ? AND name LIKE ? ESCAPE '\' ORDER BY name ASC LIMIT ?`,
-			volumeID, pattern, limit,
-		)
+	where := `name LIKE ? ESCAPE '\'`
+	args := []interface{}{"%" + likeEscape(q) + "%"}
+	if volumeID != 0 {
+		where = `volume_id = ? AND ` + where
+		args = append([]interface{}{volumeID}, args...)
 	}
+	if !includeHidden {
+		where += ` AND path NOT LIKE '.%' AND path NOT LIKE '%/.%'`
+	}
+	rows, err := idx.db.Query(
+		`SELECT volume_id, path, name, dir, ext, is_dir, size, mod_time FROM files
+		 WHERE `+where+` ORDER BY name ASC LIMIT ?`,
+		append(args, limit)...,
+	)
 	if err != nil {
 		return nil, err
 	}

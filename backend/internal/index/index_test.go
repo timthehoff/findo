@@ -64,7 +64,7 @@ func TestUpsertBatchInsertsAndUpdates(t *testing.T) {
 		t.Fatalf("update not applied: %+v", got)
 	}
 
-	all, err := idx.Search(testVolume, "budget", 10)
+	all, err := idx.Search(testVolume, "budget", 10, true)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -212,7 +212,7 @@ func TestStreamUpsertBatches(t *testing.T) {
 		t.Fatalf("expected 5 written, got %d", written)
 	}
 
-	all, err := idx.Search(testVolume, "f", 10)
+	all, err := idx.Search(testVolume, "f", 10, true)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -261,7 +261,7 @@ func TestSearchAcrossAllVolumes(t *testing.T) {
 		t.Fatalf("UpsertBatch: %v", err)
 	}
 
-	all, err := idx.Search(0, "report", 10)
+	all, err := idx.Search(0, "report", 10, true)
 	if err != nil {
 		t.Fatalf("Search across all volumes: %v", err)
 	}
@@ -269,7 +269,7 @@ func TestSearchAcrossAllVolumes(t *testing.T) {
 		t.Fatalf("expected 2 results across both volumes, got %d: %+v", len(all), all)
 	}
 
-	scoped, err := idx.Search(1, "report", 10)
+	scoped, err := idx.Search(1, "report", 10, true)
 	if err != nil {
 		t.Fatalf("Search scoped to volume 1: %v", err)
 	}
@@ -409,5 +409,59 @@ func TestLargestFilesOrdersBySizeDescending(t *testing.T) {
 	}
 	if largest[0].Name != "big.mov" || largest[1].Name != "medium.pdf" {
 		t.Fatalf("expected big.mov then medium.pdf, got %+v", largest)
+	}
+}
+
+func TestHiddenEntriesAreExcludedUnlessRequested(t *testing.T) {
+	idx := openTest(t)
+	files := []File{
+		{VolumeID: testVolume, Path: "report.txt", Name: "report.txt", Dir: "", Ext: "txt"},
+		{VolumeID: testVolume, Path: ".report-cache", Name: ".report-cache", Dir: "", IsDir: true},
+		{VolumeID: testVolume, Path: ".report-cache/report.bin", Name: "report.bin", Dir: ".report-cache", Ext: "bin"},
+		{VolumeID: testVolume, Path: "docs", Name: "docs", Dir: "", IsDir: true},
+		{VolumeID: testVolume, Path: "docs/.report.swp", Name: ".report.swp", Dir: "docs", Ext: "swp"},
+		{VolumeID: testVolume, Path: "docs/report.md", Name: "report.md", Dir: "docs", Ext: "md"},
+	}
+	if err := idx.UpsertBatch(files, 1); err != nil {
+		t.Fatalf("UpsertBatch: %v", err)
+	}
+
+	paths := func(fs []File) []string {
+		var out []string
+		for _, f := range fs {
+			out = append(out, f.Path)
+		}
+		return out
+	}
+
+	visible, err := idx.Search(testVolume, "report", 50, false)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if got := paths(visible); len(got) != 2 || got[0] != "docs/report.md" || got[1] != "report.txt" {
+		t.Fatalf("hidden search = %v, want only docs/report.md and report.txt (no dotfiles, nothing inside a dot-dir)", got)
+	}
+
+	all, err := idx.Search(0, "report", 50, true)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(all) != 5 {
+		t.Fatalf("includeHidden search returned %d rows, want 5: %v", len(all), paths(all))
+	}
+
+	root, err := idx.List(testVolume, "", false)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if got := paths(root); len(got) != 2 {
+		t.Fatalf("List without hidden = %v, want docs and report.txt", got)
+	}
+	docs, err := idx.List(testVolume, "docs", true)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(docs) != 2 {
+		t.Fatalf("List(includeHidden) docs = %v, want both entries", paths(docs))
 	}
 }

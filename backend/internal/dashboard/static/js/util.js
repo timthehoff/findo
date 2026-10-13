@@ -39,3 +39,9 @@ export function debounce(fn, wait) {
     timer = setTimeout(() => fn(...args), wait);
   };
 }
+
+// lineIcon wraps SVG path markup in the monochrome line-icon style used
+// across the UI (stroke follows the surrounding text color).
+export function lineIcon(body, size = 18) {
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+}

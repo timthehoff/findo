@@ -3,6 +3,7 @@ package index
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -57,7 +58,7 @@ func (idx *Index) CreateVolume(name, host, share, username string, passwordEnc [
 		name, host, share, username, passwordEnc, now, now,
 	)
 	if err != nil {
-		return Volume{}, err
+		return Volume{}, wrapNameConflict(err)
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
@@ -71,6 +72,15 @@ func (idx *Index) CreateVolume(name, host, share, username string, passwordEnc [
 		return Volume{}, fmt.Errorf("volume %d not found after insert", id)
 	}
 	return v, nil
+}
+
+// wrapNameConflict maps SQLite's unique-index violation on volumes.name (the
+// only unique constraint besides the primary key) to ErrVolumeNameTaken.
+func wrapNameConflict(err error) error {
+	if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+		return ErrVolumeNameTaken
+	}
+	return err
 }
 
 // UpdateVolume applies u to the volume with the given id.
@@ -94,7 +104,7 @@ func (idx *Index) UpdateVolume(id int64, u VolumeUpdate) (Volume, error) {
 		)
 	}
 	if err != nil {
-		return Volume{}, err
+		return Volume{}, wrapNameConflict(err)
 	}
 
 	v, ok, err := idx.GetVolume(id)

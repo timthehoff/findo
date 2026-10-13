@@ -226,3 +226,15 @@ func TestVolumeInsightsReturnsExtensionsAndLargestFiles(t *testing.T) {
 		t.Fatalf("expected b.jpg first by size, got %+v", out.LargestFiles)
 	}
 }
+
+func TestVolumeNameConflictReturns409(t *testing.T) {
+	srv := newTestServerNoVolumes(t, newFakeSMB())
+	in := map[string]string{"name": "Home NAS", "host": "nas.local", "share": "media", "username": "findo", "password": "pw"}
+	if rec := doJSON(t, srv, "POST", "/volumes", in); rec.Code != 201 {
+		t.Fatalf("first create: %d %s", rec.Code, rec.Body.String())
+	}
+	in["name"] = "  home nas "
+	if rec := doJSON(t, srv, "POST", "/volumes", in); rec.Code != 409 {
+		t.Fatalf("duplicate create: expected 409, got %d: %s", rec.Code, rec.Body.String())
+	}
+}

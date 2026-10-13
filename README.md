@@ -55,7 +55,7 @@ is `FINDO_MASTER_KEY`, which encrypts SMB volume passwords at rest. Optional:
 `HTTP_ADDR` (default `:8080`), `DB_PATH` (default `findo.db`).
 
 SMB volumes themselves aren't configured via environment variables — add one
-at runtime through the dashboard (`GET /`) or `POST /volumes` once the server
+at runtime through the Volumes page (`/volumes.html`) or `POST /volumes` once the server
 is running; the server starts fine with zero volumes configured.
 
 ### Makefile targets
@@ -84,7 +84,7 @@ cd backend
 docker compose -f docker-compose.dev.yml up --build
 ```
 
-Then visit `http://localhost:8081/` for the dashboard and add the samba
+Then visit `http://localhost:8081/volumes.html` and add the samba
 container as a volume (host `samba`, share `testshare`, user/pass
 `testuser`/`testpass`), or hit the API directly — see the compose file's
 comment for the equivalent `curl -X POST /volumes` command.
@@ -104,7 +104,7 @@ never touches an existing `.env`. Pin a release with
 `FINDO_PORT` in `.env`. SMB volumes keep their DB in the `findo-data` named
 volume.
 
-The dashboard nav shows the running version and an "update available"
+The nav shows the running version and an "update available"
 badge when GitHub has a newer release; re-run the command above to update.
 
 Register the NAS by IP or a real DNS name, not a `.local` mDNS name, which

@@ -3,42 +3,34 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Findo — Dashboard</title>
+<title>Search — Findo</title>
 <link rel="stylesheet" href="/css/base.css">
-<link rel="stylesheet" href="/css/dashboard.css">
+<link rel="stylesheet" href="/css/search.css">
 </head>
 <body>
   <nav class="topnav">
-    <span class="brand">🐾 Findo <small class="version" data-version></small></span>
-    <a href="/" class="active">Dashboard</a>
-    <a href="/search.html">Search</a>
-    <button class="small" data-theme-toggle></button>
+    <div class="brand-group">
+      <a class="brand" href="/">🐾 Findo</a>
+      <small class="version" data-version></small>
+    </div>
+    <a href="/" class="active">Search</a>
+    <a href="/volumes.html">Volumes</a>
+    <button class="icon-btn" data-theme-toggle></button>
   </nav>
 
-  <div class="cards" id="cards">Fetching stats…</div>
+  <div class="page-head">
+    <h1>Search &amp; Browse</h1>
+    <label class="toggle"><input type="checkbox" id="showHidden"> Show hidden</label>
+  </div>
+  <div class="search-bar">
+    <select id="volumeFilter"><option value="">all volumes</option></select>
+    <input type="search" id="q" placeholder="Search all volumes…" autofocus>
+  </div>
+  <nav id="breadcrumbs" class="breadcrumbs"></nav>
+  <div id="err"></div>
+  <div id="count" class="count"></div>
+  <ul id="results" class="results"></ul>
 
-  <h2>Volumes</h2>
-  <div id="volumes">Fetching volumes…</div>
-  <button id="addVolumeBtn">+ Add volume</button>
-
-  <dialog id="volumeDialog">
-    <form id="volumeForm">
-      <h2 id="volumeDialogTitle" style="margin:0 0 0.25rem">Add volume</h2>
-      <input type="hidden" id="volumeId">
-      <label>Name <input type="text" id="vName" required></label>
-      <label>Host <input type="text" id="vHost" required placeholder="nas.local or 192.0.2.10"></label>
-      <label>Share <input type="text" id="vShare" required></label>
-      <label>Username <input type="text" id="vUsername" required></label>
-      <label>Password <input type="password" id="vPassword" placeholder="leave blank to keep the current password" autocomplete="new-password"></label>
-      <div id="testResult"></div>
-      <div class="dialog-actions">
-        <button type="button" id="testBtn">Test connection</button>
-        <button type="button" id="cancelBtn">Cancel</button>
-        <button type="submit">Save</button>
-      </div>
-    </form>
-  </dialog>
-
-  <script type="module" src="/js/dashboard.js"></script>
+  <script type="module" src="/js/search.js"></script>
 </body>
 </html>

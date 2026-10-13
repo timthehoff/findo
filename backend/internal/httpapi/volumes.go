@@ -3,9 +3,11 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/thoff/findo/backend/internal/crypto"
@@ -90,12 +92,23 @@ func (s *Server) handleListVolumes(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{"volumes": out})
 }
 
+// writeVolumeWriteError reports a failed volume create/update: a name clash is
+// the caller's to fix (409); anything else is a server error.
+func writeVolumeWriteError(w http.ResponseWriter, err error) {
+	if errors.Is(err, index.ErrVolumeNameTaken) {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	writeError(w, http.StatusInternalServerError, err.Error())
+}
+
 func (s *Server) handleCreateVolume(w http.ResponseWriter, r *http.Request) {
 	var in volumeInput
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
+	in.Name = strings.TrimSpace(in.Name)
 	if in.Name == "" || in.Host == "" || in.Share == "" || in.Username == "" || in.Password == "" {
 		writeError(w, http.StatusBadRequest, "name, host, share, username, and password are all required")
 		return
@@ -108,7 +121,7 @@ func (s *Server) handleCreateVolume(w http.ResponseWriter, r *http.Request) {
 	}
 	vol, err := s.idx.CreateVolume(in.Name, in.Host, in.Share, in.Username, passwordEnc)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeVolumeWriteError(w, err)
 		return
 	}
 
@@ -140,6 +153,7 @@ func (s *Server) handleUpdateVolume(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
+	in.Name = strings.TrimSpace(in.Name)
 	if in.Name == "" || in.Host == "" || in.Share == "" || in.Username == "" {
 		writeError(w, http.StatusBadRequest, "name, host, share, and username are required")
 		return
@@ -163,7 +177,7 @@ func (s *Server) handleUpdateVolume(w http.ResponseWriter, r *http.Request) {
 
 	vol, err := s.idx.UpdateVolume(id, u)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeVolumeWriteError(w, err)
 		return
 	}
 
