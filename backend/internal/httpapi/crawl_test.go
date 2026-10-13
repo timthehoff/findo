@@ -24,7 +24,7 @@ func newTestServer(t *testing.T) (*Server, *fakeSMB, int64) {
 	t.Cleanup(func() { idx.Close() })
 
 	key := make([]byte, crypto.KeySize)
-	srv := NewServer(idx, key)
+	srv := NewServer(idx, key, "dev")
 
 	passwordEnc, err := crypto.Encrypt(key, []byte("pass"))
 	if err != nil {

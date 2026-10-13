@@ -104,6 +104,9 @@ never touches an existing `.env`. Pin a release with
 `FINDO_PORT` in `.env`. SMB volumes keep their DB in the `findo-data` named
 volume.
 
+The dashboard nav shows the running version and an "update available"
+badge when GitHub has a newer release; re-run the command above to update.
+
 Register the NAS by IP or a real DNS name, not a `.local` mDNS name, which
 doesn't resolve from inside a bridge-networked container.
 

@@ -90,6 +90,8 @@ func (rt *volumeRuntime) watchHealth() (connected bool, lastEventAt time.Time, r
 type Server struct {
 	idx       *index.Index
 	masterKey []byte
+	version   string // build version; "dev" for unreleased builds
+	updates   *updateChecker
 
 	// newSMB constructs the SMB client for a volume; overridden in tests to
 	// inject a fake NAS instead of dialing a real one.
@@ -99,10 +101,12 @@ type Server struct {
 	volumes map[int64]*volumeRuntime
 }
 
-func NewServer(idx *index.Index, masterKey []byte) *Server {
+func NewServer(idx *index.Index, masterKey []byte, version string) *Server {
 	return &Server{
 		idx:       idx,
 		masterKey: masterKey,
+		version:   version,
+		updates:   newUpdateChecker(),
 		newSMB: func(host, share, user, pass string) smbConnector {
 			return smbclient.New(host, share, user, pass)
 		},
@@ -113,6 +117,7 @@ func NewServer(idx *index.Index, masterKey []byte) *Server {
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", s.handleHealth)
+	mux.HandleFunc("GET /version", s.handleVersion)
 	mux.HandleFunc("GET /stats", s.handleStats)
 	mux.HandleFunc("GET /files", s.handleList)
 	mux.HandleFunc("GET /search", s.handleSearch)

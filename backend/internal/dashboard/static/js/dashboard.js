@@ -2,8 +2,10 @@ import { escapeHTML, humanSize, humanDuration, timeAgo } from './util.js';
 import { getJSON, postJSON, putJSON, deleteJSON } from './api.js';
 import { initTheme } from './theme.js';
 import { toast } from './toast.js';
+import { initVersion } from './version.js';
 
 initTheme();
+initVersion();
 
 const volumeDialog = document.getElementById('volumeDialog');
 const volumeForm = document.getElementById('volumeForm');

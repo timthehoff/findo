@@ -2,8 +2,10 @@ import { escapeHTML, humanSize, debounce } from './util.js';
 import { getJSON } from './api.js';
 import { initTheme } from './theme.js';
 import { toast } from './toast.js';
+import { initVersion } from './version.js';
 
 initTheme();
+initVersion();
 
 const volumeSelect = document.getElementById('volumeFilter');
 const qInput = document.getElementById('q');
