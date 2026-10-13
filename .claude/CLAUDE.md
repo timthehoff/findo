@@ -56,6 +56,18 @@ breadcrumb directory browsing, copy-path and download actions) — with an
 explicit light/dark/system theme toggle and toast notifications for action
 feedback.
 
+## Deployment
+
+Docker-first. `backend/Dockerfile` builds a static, non-root distroless
+image (version injected via `-X main.version`); `deploy/docker-compose.yml`
+is the production stack (named volume `findo-data` at `/data`, settings from
+an adjacent `.env`); `install.sh` is the curl-and-run installer/updater (it
+generates `FINDO_MASTER_KEY` once and never overwrites an existing `.env`).
+`.github/workflows/release.yml` publishes multi-arch images to
+`ghcr.io/timthehoff/findo` on `vX.Y.Z` tags. Register NAS volumes by IP or
+DNS name, not `.local` mDNS names (they don't resolve in a bridge-networked
+container).
+
 ## Environment / secrets
 
 Never invent NAS hostnames, ports, or credentials. `FINDO_MASTER_KEY`
