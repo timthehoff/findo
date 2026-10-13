@@ -102,11 +102,16 @@ type Server struct {
 }
 
 func NewServer(idx *index.Index, masterKey []byte, version string) *Server {
+	// 0.x releases are all published as pre-releases, so a 0.x install has to
+	// look at them to ever hear about an update.
+	cur, ok := parseSemver(version)
+	includePre := ok && cur[0] == 0
+
 	return &Server{
 		idx:       idx,
 		masterKey: masterKey,
 		version:   version,
-		updates:   newUpdateChecker(),
+		updates:   newUpdateChecker(includePre),
 		newSMB: func(host, share, user, pass string) smbConnector {
 			return smbclient.New(host, share, user, pass)
 		},

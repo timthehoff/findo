@@ -71,6 +71,9 @@ container).
 release builds, whether GitHub's latest release is newer (looked up
 server-side, cached 6h, failures retried hourly); `js/version.js` shows it
 as a nav badge on both pages. `dev` builds skip the lookup.
+The lookup lists releases (not `/releases/latest`, which 404s while every
+release is a pre-release) and picks the highest semver; 0.x installs
+consider pre-releases, 1.x+ installs only stable ones.
 
 ## Environment / secrets
 

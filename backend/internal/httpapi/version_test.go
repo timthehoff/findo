@@ -115,3 +115,27 @@ func TestVersionDevBuildSkipsLookup(t *testing.T) {
 		t.Fatalf("unexpected response: %+v", v)
 	}
 }
+
+func TestPickLatest(t *testing.T) {
+	rels := []release{
+		{Tag: "v0.9.0", Prerelease: true},
+		{Tag: "v1.0.1"},
+		{Tag: "v1.1.0", Draft: true},
+		{Tag: "v1.0.2"},
+		{Tag: "nightly"},
+		{Tag: "v1.2.0-rc1", Prerelease: true},
+	}
+
+	if got, ok := pickLatest(rels, false); !ok || got.Tag != "v1.0.2" {
+		t.Fatalf("stable: got %+v, %v; want v1.0.2 (not the draft, pre-release or non-semver tag)", got, ok)
+	}
+	if got, ok := pickLatest(rels, true); !ok || got.Tag != "v1.2.0-rc1" {
+		t.Fatalf("with pre-releases: got %+v, %v", got, ok)
+	}
+	if _, ok := pickLatest([]release{{Tag: "v0.0.1", Prerelease: true}}, false); ok {
+		t.Fatal("a pre-release-only list must yield nothing for stable installs")
+	}
+	if got, ok := pickLatest([]release{{Tag: "v0.0.1", Prerelease: true}, {Tag: "v0.0.2", Prerelease: true}}, true); !ok || got.Tag != "v0.0.2" {
+		t.Fatalf("0.x installs must see pre-releases: got %+v, %v", got, ok)
+	}
+}
