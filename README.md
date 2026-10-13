@@ -89,6 +89,29 @@ container as a volume (host `samba`, share `testshare`, user/pass
 `testuser`/`testpass`), or hit the API directly — see the compose file's
 comment for the equivalent `curl -X POST /volumes` command.
 
+## Deploying (Docker)
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/timthehoff/findo/main/install.sh | sh
+```
+
+This writes `~/findo/` (override with `FINDO_DIR`) containing the compose
+file from `deploy/docker-compose.yml` and a `.env` with a freshly generated
+`FINDO_MASTER_KEY` — back that key up; losing it means re-entering every
+stored SMB password. Re-running the command updates to the latest image and
+never touches an existing `.env`. Pin a release with
+`FINDO_VERSION=1.2.3 sh install.sh`, and change the host port with
+`FINDO_PORT` in `.env`. SMB volumes keep their DB in the `findo-data` named
+volume.
+
+Register the NAS by IP or a real DNS name, not a `.local` mDNS name, which
+doesn't resolve from inside a bridge-networked container.
+
+Images (amd64 + arm64) are published to `ghcr.io/timthehoff/findo` by
+`.github/workflows/release.yml` when a `vX.Y.Z` tag is pushed. After the
+first release, set the package's visibility to public in GitHub's package
+settings so installs can pull without credentials.
+
 ## Repo layout
 
 ```

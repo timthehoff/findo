@@ -15,7 +15,11 @@ import (
 	"github.com/thoff/findo/backend/internal/index"
 )
 
+// version is set at release time via -ldflags "-X main.version=...".
+var version = "dev"
+
 func main() {
+	log.Printf("findo-server %s", version)
 	cfg, err := config.Load(".env")
 	if err != nil {
 		log.Fatalf("config: %v", err)
