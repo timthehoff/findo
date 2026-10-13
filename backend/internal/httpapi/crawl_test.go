@@ -52,7 +52,7 @@ func TestCrawlIndexesDiscoveredFiles(t *testing.T) {
 		t.Fatalf("Crawl: %v", err)
 	}
 
-	files, err := srv.idx.Search(volID, "", 10)
+	files, err := srv.idx.Search(volID, "", 10, true)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}

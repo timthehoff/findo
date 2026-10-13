@@ -49,12 +49,20 @@ rest (`internal/crypto`, AES-256-GCM under `FINDO_MASTER_KEY`). Every crawl
 run is recorded with why it started (`manual`/`startup`/`periodic`/
 `resync`), duration, and files/bytes seen or removed
 (`GET /volumes/{id}/crawl-runs`), and each volume's change-notify listener
-reports its own connected/last-event/resync-count state. The dashboard is
-two pages — `index.html` (volume config, crawl/watch monitoring, a
-per-volume storage/largest-files breakdown) and `search.html` (live search,
-breadcrumb directory browsing, copy-path and download actions) — with an
-explicit light/dark/system theme toggle and toast notifications for action
-feedback.
+reports its own connected/last-event/resync-count state. The web UI is
+two pages — `index.html`, the landing page (live search, breadcrumb
+directory browsing, copy-path and download actions; dotfiles — and anything under a dot-directory — are
+hidden unless `hidden=1` ("Show hidden" toggle; filtered in SQL by
+`Index.Search`/`List` so counts and limits stay right); search text, volume
+and browse path live in the URL query — `?q=&volume=<name>&path=&hidden=1` — volume names are unique
+(case-insensitively; a `volumes.name` unique index, 409 on clashes, existing
+duplicates renamed on migrate) — so
+back/forward, reloads and links work), and `volumes.html`
+(volume config, crawl/watch monitoring, a per-volume storage/largest-files
+breakdown) — with an icon-only light/dark/system theme toggle, a clickable
+logo back to `/`, and toast notifications for action feedback. (`/search` and
+`/volumes` are JSON API routes, so those pages can't live at the bare path —
+hence `/volumes.html`; `/search.html` 301s to `/`.)
 
 ## Deployment
 
@@ -98,8 +106,8 @@ comment for the `curl` command that registers it as a volume).
   `internal/index` (SQLite-backed metadata store, `modernc.org/sqlite`, pure
   Go/no cgo; also owns volume config CRUD in `volumes.go`) · `internal/httpapi`
   (routes/handlers/per-volume crawl orchestration) · `internal/dashboard`
-  (embedded static multi-page site: `index.html` for volume config/
-  monitoring, `search.html` for search/browse, sharing `css/`/`js/` between
+  (embedded static multi-page site: `index.html` for search/browse,
+  `volumes.html` for volume config/monitoring, sharing `css/`/`js/` between
   them — no build step, no frontend framework, ES modules loaded directly).
 - `httpapi.Server` holds a `map[int64]*volumeRuntime` (one SMB session +
   crawling flag + watch/periodic-crawl goroutines per configured volume),
@@ -173,13 +181,19 @@ comment for the `curl` command that registers it as a volume).
 - Keep the dashboard (`internal/dashboard/static/`) as plain HTML/CSS/JS
   calling the JSON API via `fetch` — no build tooling, no frontend
   framework. It's multiple pages/files, not one monolith: `index.html`
-  (volume config + monitoring) and `search.html` (search/browse) each pull
+  (search/browse) and `volumes.html` (volume config + monitoring) each pull
   in shared `css/base.css` plus their own page CSS, and shared `js/util.js`
   (formatting/escaping helpers) + `js/api.js` (fetch wrapper) via native ES
   module `import`/`export` — no bundler needed since browsers load `.js`
   modules directly. Add a new page the same way: its own `.html` + page-
   specific `css/`/`js/` files, reusing `base.css`/`util.js`/`api.js` rather
   than duplicating them.
+- Shared look (`css/base.css`): quiet outlined buttons, one `button.primary`
+  (accent fill) per page, and `.icon-btn` for row actions — icon-only with a
+  tooltip + `aria-label`, plus `.with-label` only where an icon alone isn't
+  obvious (`lineIcon()` in `js/util.js` draws the monochrome line icons). Lists
+  are hairline-separated rows, not boxed cards; stat tiles use `--tile-bg`;
+  each page opens with a `.page-head` (h1 + one action/control on the right).
 - Also shared across pages: `js/theme.js` (`initTheme()`, called once per
   page) drives an explicit light/dark/system toggle — every button with
   `[data-theme-toggle]` cycles it, storing the choice in `localStorage`

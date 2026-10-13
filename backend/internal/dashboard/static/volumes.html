@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Volumes — Findo</title>
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/volumes.css">
+</head>
+<body>
+  <nav class="topnav">
+    <div class="brand-group">
+      <a class="brand" href="/">🐾 Findo</a>
+      <small class="version" data-version></small>
+    </div>
+    <a href="/">Search</a>
+    <a href="/volumes.html" class="active">Volumes</a>
+    <button class="icon-btn" data-theme-toggle></button>
+  </nav>
+
+  <div class="page-head">
+    <h1>Volumes</h1>
+    <button class="primary" id="addVolumeBtn">Add volume</button>
+  </div>
+
+  <div class="cards" id="cards">Fetching stats…</div>
+
+  <div id="volumes" class="volume-list">Fetching volumes…</div>
+
+  <dialog id="volumeDialog">
+    <form id="volumeForm">
+      <h2 id="volumeDialogTitle" style="margin:0 0 0.25rem">Add volume</h2>
+      <input type="hidden" id="volumeId">
+      <label>Name <input type="text" id="vName" required></label>
+      <label>Host <input type="text" id="vHost" required placeholder="nas.local or 192.0.2.10"></label>
+      <label>Share <input type="text" id="vShare" required></label>
+      <label>Username <input type="text" id="vUsername" required></label>
+      <label>Password <input type="password" id="vPassword" placeholder="leave blank to keep the current password" autocomplete="new-password"></label>
+      <div id="testResult"></div>
+      <div class="dialog-actions">
+        <button type="button" id="testBtn">Test connection</button>
+        <button type="button" id="cancelBtn">Cancel</button>
+        <button type="submit" class="primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="/js/volumes.js"></script>
+</body>
+</html>

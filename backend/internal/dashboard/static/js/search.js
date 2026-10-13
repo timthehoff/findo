@@ -1,4 +1,4 @@
-import { escapeHTML, humanSize, debounce } from './util.js';
+import { escapeHTML, humanSize, debounce, lineIcon } from './util.js';
 import { getJSON } from './api.js';
 import { initTheme } from './theme.js';
 import { toast } from './toast.js';
@@ -11,10 +11,71 @@ const volumeSelect = document.getElementById('volumeFilter');
 const qInput = document.getElementById('q');
 const breadcrumbsEl = document.getElementById('breadcrumbs');
 const errEl = document.getElementById('err');
-const resultsBody = document.querySelector('#results tbody');
+const resultsEl = document.getElementById('results');
+const countEl = document.getElementById('count');
+const showHiddenEl = document.getElementById('showHidden');
 
 let volumesById = new Map();
 let currentPath = ''; // browse-mode path within the selected volume
+let lastQuery = '';   // previous search text, to decide push vs replace in the URL
+
+// The page state (search text, selected volume, browse path) lives in the
+// query string so back/forward, reloads and shared links all work. Volumes
+// appear by name, which the server keeps unique (case-insensitively).
+function writeURL(push) {
+  const params = new URLSearchParams();
+  const q = qInput.value.trim();
+  if (q) params.set('q', q);
+  const vol = volumesById.get(volumeSelect.value);
+  if (vol) params.set('volume', vol.name);
+  if (!q && volumeSelect.value && currentPath) params.set('path', currentPath);
+  if (showHiddenEl.checked) params.set('hidden', '1');
+  const qs = params.toString();
+  const url = location.pathname + (qs ? '?' + qs : '');
+  if (url === location.pathname + location.search) return;
+  history[push ? 'pushState' : 'replaceState'](null, '', url);
+}
+
+// updateTitle puts the current search or folder in the tab title, most
+// specific part first so it survives narrow tabs and reads well in history.
+function updateTitle() {
+  const vol = volumesById.get(volumeSelect.value);
+  const q = qInput.value.trim();
+  const folder = currentPath ? currentPath.split('/').pop() : '';
+  let parts;
+  if (q) {
+    parts = [vol ? `${q} in ${vol.name}` : q];
+  } else if (vol) {
+    parts = folder ? [folder, vol.name] : [vol.name];
+  } else {
+    parts = ['Search'];
+  }
+  document.title = [...parts, 'Findo'].join(' — ');
+}
+
+function updatePlaceholder() {
+  const vol = volumesById.get(volumeSelect.value);
+  qInput.placeholder = vol ? `Search in ${vol.name}…` : 'Search all volumes…';
+}
+
+// restoreFromURL applies the query string to the controls and runs the
+// matching search or browse, without touching history.
+async function restoreFromURL() {
+  const params = new URLSearchParams(location.search);
+  const wanted = (params.get('volume') || '').toLowerCase();
+  const vol = [...volumesById.values()].find(v => v.name.toLowerCase() === wanted);
+  volumeSelect.value = vol ? String(vol.id) : '';
+  qInput.value = params.get('q') || '';
+  currentPath = volumeSelect.value ? (params.get('path') || '') : '';
+  showHiddenEl.checked = params.get('hidden') === '1';
+  lastQuery = qInput.value.trim();
+  updatePlaceholder();
+  if (lastQuery) {
+    await performSearch(lastQuery);
+  } else {
+    await loadBrowse();
+  }
+}
 
 // fileTypeBadge maps an extension to a short label/color class so results
 // are scannable at a glance without a full icon set.
@@ -80,7 +141,7 @@ async function loadVolumes() {
     volumesById = new Map(volumes.map(v => [String(v.id), v]));
 
     const prev = volumeSelect.value;
-    volumeSelect.innerHTML = '<option value="">All volumes</option>'
+    volumeSelect.innerHTML = '<option value="">all volumes</option>'
       + volumes.map(v => `<option value="${v.id}">${escapeHTML(v.name)}</option>`).join('');
     volumeSelect.value = volumes.some(v => String(v.id) === prev) ? prev : '';
   } catch (e) {
@@ -109,49 +170,91 @@ function renderBreadcrumbs() {
     i === crumbs.length - 1
       ? `<span>${escapeHTML(c.label)}</span>`
       : `<a href="#" data-path="${escapeHTML(c.path)}">${escapeHTML(c.label)}</a>`
-  ).join(' <span class="sep">/</span> ');
+  ).join(' <span class="sep">›</span> ');
 
   breadcrumbsEl.querySelectorAll('a').forEach(a => {
     a.addEventListener('click', (ev) => {
       ev.preventDefault();
       currentPath = a.dataset.path;
+      writeURL(true);
       loadBrowse();
     });
   });
 }
 
+const ICON_FOLDER = lineIcon('<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>', 22);
+const ICON_JUMP = lineIcon('<path d="M9 14 4 9l5-5"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/>');
+const ICON_COPY = lineIcon('<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>');
+const ICON_DOWNLOAD = lineIcon('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>');
+
+const SEARCH_LIMIT = 100;
+
+// hiddenParam opts the API request in to dotfiles when the toggle is on.
+const hiddenParam = () => (showHiddenEl.checked ? '&hidden=1' : '');
+
+function showMessage(html) {
+  countEl.textContent = '';
+  resultsEl.innerHTML = `<li class="empty-state muted">${html}</li>`;
+}
+
+function renderCount(n, query) {
+  if (query) {
+    countEl.textContent = n >= SEARCH_LIMIT
+      ? `Showing the first ${SEARCH_LIMIT} results — narrow your search to see more`
+      : `${n} ${n === 1 ? 'result' : 'results'}`;
+  } else {
+    countEl.textContent = `${n} ${n === 1 ? 'item' : 'items'}`;
+  }
+}
+
 function renderResults(entries, query) {
   if (entries.length === 0) {
-    resultsBody.innerHTML = '<tr><td colspan="7" class="muted">No results — try a different scent.</td></tr>';
+    showMessage(query
+      ? `No results for “${escapeHTML(query)}” — Findo sniffed everywhere. Try a different scent. 🐕`
+      : 'Nothing in this folder.');
     return;
   }
+  renderCount(entries.length, query);
 
-  resultsBody.innerHTML = entries.map(f => {
+  // `query` is empty when browsing a folder, where every row already lives
+  // in the current location, so the "show in folder" button is omitted.
+  resultsEl.innerHTML = entries.map(f => {
     const badge = fileTypeBadge(f.ext, f.isDir);
     const vol = volumesById.get(String(f.volumeId));
-    const nameHTML = highlight(f.name, query);
-    const contentURL = `/files/content?volume=${f.volumeId}&path=${encodeURIComponent(f.path)}`;
+    const volName = vol ? vol.name : String(f.volumeId);
+    // The name suffix is cosmetic: it becomes the browser tab's title.
+    const contentURL = `/files/content/${encodeURIComponent(f.name)}?volume=${f.volumeId}&path=${encodeURIComponent(f.path)}`;
     const sharePath = vol ? `${vol.share}/${f.path}` : f.path;
-    const nameCell = f.isDir
-      ? `<a href="#" data-dir="${escapeHTML(f.path)}" data-vol="${f.volumeId}">${nameHTML}</a>`
-      : `<a href="${contentURL}" target="_blank" rel="noopener">${nameHTML}</a>`;
+    const parent = f.path.includes('/') ? f.path.slice(0, f.path.lastIndexOf('/')) : '';
+    const nameHTML = highlight(f.name, query);
+    const name = f.isDir
+      ? `<a class="result-name" href="#" data-dir="${escapeHTML(f.path)}" data-vol="${f.volumeId}">${nameHTML}</a>`
+      : `<a class="result-name" href="${contentURL}" target="_blank" rel="noopener">${nameHTML}</a>`;
+    const where = [`<span class="vol">${escapeHTML(volName)}</span>`, ...(parent ? parent.split('/') : []).map(escapeHTML)]
+      .join(' <span class="sep">›</span> ');
+    const date = new Date(f.modTime * 1000);
+    const meta = [
+      f.isDir ? '' : humanSize(f.size),
+      date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }),
+    ].filter(Boolean).map(part => `<span>${part}</span>`).join(' · ');
     return `
-      <tr>
-        <td>${nameCell}</td>
-        <td><span class="badge type-${badge.cls}">${badge.label}</span></td>
-        <td>${vol ? escapeHTML(vol.name) : f.volumeId}</td>
-        <td class="subpath" title="${escapeHTML(sharePath)}">${escapeHTML(sharePath)}</td>
-        <td>${f.isDir ? '' : humanSize(f.size)}</td>
-        <td>${new Date(f.modTime * 1000).toLocaleString()}</td>
-        <td class="actions">
-          <button class="small" data-copy="${escapeHTML(f.path)}" data-vol="${f.volumeId}">Copy path</button>
-          ${f.isDir ? '' : `<a href="${contentURL}&download=1">Download</a>`}
-        </td>
-      </tr>
+      <li class="result">
+        <span class="type-tile type-${badge.cls}${badge.label.length > 4 ? ' long' : ''}" title="${badge.label}">${f.isDir ? ICON_FOLDER : badge.label}</span>
+        <div class="result-main">
+          ${name}
+          <span class="result-where" title="${escapeHTML(sharePath)}">${where}</span>
+        </div>
+        <div class="result-meta" title="${escapeHTML(date.toLocaleString())}">${meta}</div>
+        <div class="result-actions">
+          ${query ? `<a class="icon-btn" href="#" data-dir="${escapeHTML(parent)}" data-vol="${f.volumeId}" title="Show in folder" aria-label="Show in folder">${ICON_JUMP}</a>` : ''}
+          <button class="icon-btn" data-copy="${escapeHTML(f.path)}" data-vol="${f.volumeId}" title="Copy SMB path" aria-label="Copy SMB path">${ICON_COPY}</button>
+          ${f.isDir ? `<span class="icon-btn" style="visibility:hidden" aria-hidden="true">${ICON_DOWNLOAD}</span>` : `<a class="icon-btn" href="${contentURL}&download=1" title="Download" aria-label="Download">${ICON_DOWNLOAD}</a>`}
+        </div>
+      </li>
     `;
   }).join('');
 
-  resultsBody.querySelectorAll('button[data-copy]').forEach(b => {
+  resultsEl.querySelectorAll('button[data-copy]').forEach(b => {
     b.addEventListener('click', async () => {
       const vol = volumesById.get(b.dataset.vol);
       if (!vol) return;
@@ -164,12 +267,15 @@ function renderResults(entries, query) {
     });
   });
 
-  resultsBody.querySelectorAll('a[data-dir]').forEach(a => {
+  resultsEl.querySelectorAll('a[data-dir]').forEach(a => {
     a.addEventListener('click', (ev) => {
       ev.preventDefault();
       volumeSelect.value = a.dataset.vol;
       currentPath = a.dataset.dir;
       qInput.value = '';
+      lastQuery = '';
+      updatePlaceholder();
+      writeURL(true);
       loadBrowse();
     });
   });
@@ -177,16 +283,18 @@ function renderResults(entries, query) {
 
 async function loadBrowse() {
   errEl.textContent = '';
+  updateTitle();
   renderBreadcrumbs();
 
   const volId = volumeSelect.value;
   if (!volId) {
-    resultsBody.innerHTML = '<tr><td colspan="7" class="muted">Pick a volume to browse, or type above to search across all volumes.</td></tr>';
+    countEl.textContent = '';
+    resultsEl.innerHTML = '';
     return;
   }
 
   try {
-    const body = await getJSON(`/files?volume=${volId}&path=${encodeURIComponent(currentPath)}`);
+    const body = await getJSON(`/files?volume=${volId}&path=${encodeURIComponent(currentPath)}${hiddenParam()}`);
     renderResults(body.entries || [], '');
   } catch (e) {
     errEl.textContent = e.message;
@@ -195,11 +303,12 @@ async function loadBrowse() {
 
 async function performSearch(query) {
   errEl.textContent = '';
+  updateTitle();
   renderBreadcrumbs();
 
   const volId = volumeSelect.value;
   try {
-    let url = `/search?q=${encodeURIComponent(query)}&limit=100`;
+    let url = `/search?q=${encodeURIComponent(query)}&limit=${SEARCH_LIMIT}${hiddenParam()}`;
     if (volId) url += `&volume=${volId}`;
     const body = await getJSON(url);
     renderResults(body.entries || [], query);
@@ -216,10 +325,18 @@ const debouncedSearch = debounce((query) => {
   }
 }, 250);
 
-qInput.addEventListener('input', () => debouncedSearch(qInput.value.trim()));
+qInput.addEventListener('input', () => {
+  const query = qInput.value.trim();
+  // One history entry per search session, not per keystroke.
+  writeURL(lastQuery === '' && query !== '');
+  lastQuery = query;
+  debouncedSearch(query);
+});
 
 volumeSelect.addEventListener('change', () => {
   currentPath = '';
+  updatePlaceholder();
+  writeURL(true);
   const query = qInput.value.trim();
   if (query) {
     performSearch(query);
@@ -228,12 +345,19 @@ volumeSelect.addEventListener('change', () => {
   }
 });
 
-(async function init() {
-  await loadVolumes();
+showHiddenEl.addEventListener('change', () => {
+  writeURL(true);
   const query = qInput.value.trim();
   if (query) {
-    await performSearch(query);
+    performSearch(query);
   } else {
-    await loadBrowse();
+    loadBrowse();
   }
+});
+
+window.addEventListener('popstate', restoreFromURL);
+
+(async function init() {
+  await loadVolumes();
+  await restoreFromURL();
 })();

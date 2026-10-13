@@ -16,6 +16,9 @@
   --badge-bad-fg: #82071e;
   --chart-hue: #2a78d6;
   --mark-bg: #fff3a3;
+  --accent: #2a78d6;
+  --on-accent: #ffffff;
+  --tile-bg: color-mix(in srgb, var(--fg) 5%, var(--bg));
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -60,6 +63,7 @@ body {
 }
 
 h1 { font-size: 1.3rem; }
+.page-head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
 h2 { font-size: 1.05rem; margin-top: 2rem; }
 
 .topnav {
@@ -70,11 +74,11 @@ h2 { font-size: 1.05rem; margin-top: 2rem; }
   margin-bottom: 0.5rem;
   border-bottom: 1px solid var(--border);
 }
-.topnav .brand { font-weight: 700; margin-right: auto; }
+.topnav .brand-group { margin-right: auto; display: flex; align-items: baseline; gap: 0.4rem; }
+.topnav .brand { font-weight: 700; font-size: 1.5rem; opacity: 1; }
 .topnav a { color: inherit; text-decoration: none; font-size: 0.9rem; opacity: 0.7; }
 .topnav a.active { opacity: 1; font-weight: 600; border-bottom: 2px solid currentColor; }
-.topnav button.small { opacity: 0.85; }
-.topnav .version { font-weight: 400; font-size: 0.75rem; color: var(--muted); margin-left: 0.25rem; }
+.topnav .version { font-weight: 400; font-size: 0.75rem; color: var(--muted); }
 .topnav a.update-badge {
   opacity: 1;
   font-size: 0.75rem;
@@ -86,8 +90,8 @@ h2 { font-size: 1.05rem; margin-top: 2rem; }
   color: var(--badge-ok-fg);
 }
 
-.cards { display: flex; gap: 1rem; margin: 1rem 0 2rem; flex-wrap: wrap; }
-.card { border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 1rem; min-width: 140px; background: var(--surface); }
+.cards { display: flex; gap: 0.75rem; margin: 0.75rem 0 1.5rem; flex-wrap: wrap; }
+.card { box-sizing: border-box; border-radius: 10px; padding: 0.7rem 1rem; min-width: 140px; background: var(--tile-bg); }
 .card .label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; }
 .card .value { font-size: 1.4rem; font-weight: 600; }
 
@@ -104,12 +108,35 @@ input[type=text], input[type=password], input[type=search], select {
   border: 1px solid var(--border);
   border-radius: 6px;
 }
-button { padding: 0.4rem 0.9rem; font-size: 1rem; cursor: pointer; }
+button {
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 0.4rem 0.9rem;
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+button:hover:not(:disabled):not(.icon-btn) { background: var(--tile-bg); }
+button:disabled { opacity: 0.45; cursor: default; }
 button.small { padding: 0.2rem 0.6rem; font-size: 0.85rem; }
-button.danger { color: var(--badge-bad-fg); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 500; }
+button.primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.1); }
+button.danger:not(.icon-btn) { color: var(--badge-bad-fg); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Icon buttons (buttons or links): quiet until hovered. .with-label adds a
+   text label beside the icon for actions an icon alone wouldn't explain. */
+.icon-btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; background: none; border: 0; padding: 0.3rem; color: var(--muted); line-height: 0; border-radius: 6px; text-decoration: none; cursor: pointer; }
+.icon-btn:hover:not(:disabled) { color: var(--fg); background: var(--tile-bg); }
+.icon-btn.with-label { padding: 0.3rem 0.55rem; font-size: 0.85rem; line-height: 1.2; }
+.icon-btn.danger:hover:not(:disabled) { color: var(--badge-bad-fg); }
+.icon-btn[aria-pressed="true"] { color: var(--fg); background: var(--tile-bg); }
 
 table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 th, td { text-align: left; padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--border); }
+th { font-weight: 500; font-size: 0.75rem; color: var(--muted); }
 
 #err { color: var(--badge-bad-fg); white-space: pre-wrap; }
 
@@ -167,5 +194,6 @@ dialog label { font-size: 0.85rem; display: flex; flex-direction: column; gap: 0
 }
 @media (pointer: coarse) {
   button, input[type=text], input[type=password], input[type=search], select { min-height: 44px; }
+  .icon-btn { min-width: 44px; min-height: 44px; }
   button.small { min-height: 36px; }
 }

@@ -1,6 +1,9 @@
 package index
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestCreateAndGetVolume(t *testing.T) {
 	idx := openTest(t)
@@ -165,5 +168,65 @@ func TestSetVolumeTestResult(t *testing.T) {
 	}
 	if got.LastTestError != "" {
 		t.Fatalf("expected error to be cleared, got %q", got.LastTestError)
+	}
+}
+
+func TestVolumeNamesAreUniqueCaseInsensitively(t *testing.T) {
+	idx := openTest(t)
+
+	a, err := idx.CreateVolume("Home NAS", "a", "s", "u", []byte("x"))
+	if err != nil {
+		t.Fatalf("CreateVolume: %v", err)
+	}
+	if _, err := idx.CreateVolume("home nas", "b", "s", "u", []byte("x")); !errors.Is(err, ErrVolumeNameTaken) {
+		t.Fatalf("duplicate create: got %v, want ErrVolumeNameTaken", err)
+	}
+
+	b, err := idx.CreateVolume("Other", "b", "s", "u", []byte("x"))
+	if err != nil {
+		t.Fatalf("CreateVolume: %v", err)
+	}
+	_, err = idx.UpdateVolume(b.ID, VolumeUpdate{Name: "HOME NAS", Host: "b", Share: "s", Username: "u", Enabled: true})
+	if !errors.Is(err, ErrVolumeNameTaken) {
+		t.Fatalf("rename onto existing name: got %v, want ErrVolumeNameTaken", err)
+	}
+	// Re-saving a volume under its own name must not trip the constraint.
+	if _, err := idx.UpdateVolume(a.ID, VolumeUpdate{Name: "Home NAS", Host: "a2", Share: "s", Username: "u", Enabled: true}); err != nil {
+		t.Fatalf("update keeping own name: %v", err)
+	}
+}
+
+func TestMigrateRenamesPreexistingDuplicateVolumeNames(t *testing.T) {
+	idx := openTest(t)
+	if _, err := idx.db.Exec(`DROP INDEX idx_volumes_name`); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"NAS", "nas", "NAS", "NAS (2)"} {
+		if _, err := idx.CreateVolume(name, "h", "s", "u", []byte("x")); err != nil {
+			t.Fatalf("CreateVolume(%q): %v", name, err)
+		}
+	}
+
+	if err := idx.migrate(); err != nil {
+		t.Fatalf("migrate over duplicates: %v", err)
+	}
+
+	vols, err := idx.ListVolumes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, v := range vols {
+		got = append(got, v.Name)
+	}
+	// "NAS (2)" already exists, so generated names skip it.
+	want := []string{"NAS", "nas (3)", "NAS (4)", "NAS (2)"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v, want %v", got, want)
+		}
 	}
 }

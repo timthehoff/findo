@@ -1,7 +1,7 @@
 // Package dashboard serves a small static multi-page site for poking the
-// running index: index.html (volume config + crawl/watch monitoring) and
-// search.html (search and directory browsing), sharing css/ and js/ files
-// between them. No build step — plain HTML/CSS/JS (ES modules) calling the
+// running index: index.html, the landing page (search and directory
+// browsing), and volumes.html (volume config + crawl/watch monitoring),
+// sharing css/ and js/ files between them. No build step — plain HTML/CSS/JS (ES modules) calling the
 // JSON API via fetch.
 package dashboard
 

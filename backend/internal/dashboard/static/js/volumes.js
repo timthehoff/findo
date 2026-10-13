@@ -1,4 +1,4 @@
-import { escapeHTML, humanSize, humanDuration, timeAgo } from './util.js';
+import { escapeHTML, humanSize, humanDuration, timeAgo, lineIcon } from './util.js';
 import { getJSON, postJSON, putJSON, deleteJSON } from './api.js';
 import { initTheme } from './theme.js';
 import { toast } from './toast.js';
@@ -6,6 +6,15 @@ import { initVersion } from './version.js';
 
 initTheme();
 initVersion();
+
+const ICONS = {
+  reindex: lineIcon('<path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.5 9a9 9 0 0 1 14.9-3.4L23 10M1 14l4.6 4.4A9 9 0 0 0 20.5 15"/>'),
+  history: lineIcon('<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>'),
+  insights: lineIcon('<path d="M18 20V10M12 20V4M6 20v-6"/>'),
+  test: lineIcon('<path d="M22 11.1V12a10 10 0 1 1-5.9-9.1"/><path d="m22 4-10 10-3-3"/>'),
+  edit: lineIcon('<path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/>'),
+  delete: lineIcon('<path d="M3 6h18M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/>'),
+};
 
 const volumeDialog = document.getElementById('volumeDialog');
 const volumeForm = document.getElementById('volumeForm');
@@ -39,7 +48,7 @@ async function refreshVolumes() {
     const volumes = body.volumes || [];
 
     container.innerHTML = volumes.length === 0
-      ? '<p class="muted">No volumes configured yet. A good dog needs a yard to search — add one below.</p>'
+      ? '<p class="muted">No volumes configured yet. A good dog needs a yard to search — add one to get started.</p>'
       : volumes.map(renderVolumeCard).join('');
 
     container.querySelectorAll('button[data-action]').forEach(btn => {
@@ -54,6 +63,15 @@ async function refreshVolumes() {
   } catch (e) {
     container.textContent = 'Could not fetch volumes: ' + e.message;
   }
+}
+
+// actionBtn renders one row action: icon-only unless the icon alone wouldn't
+// explain it (opts.label adds a text label), always with a tooltip and
+// aria-label. Toggle actions report their state via aria-pressed.
+function actionBtn(action, id, title, opts = {}) {
+  const cls = ['icon-btn', opts.label ? 'with-label' : '', opts.danger ? 'danger' : ''].filter(Boolean).join(' ');
+  const pressed = opts.pressed === undefined ? '' : ` aria-pressed="${opts.pressed}"`;
+  return `<button class="${cls}" data-action="${action}" data-id="${id}" title="${title}" aria-label="${title}"${pressed}${opts.disabled ? ' disabled' : ''}>${ICONS[action]}${opts.label ? `<span>${opts.label}</span>` : ''}</button>`;
 }
 
 function renderVolumeCard(v) {
@@ -100,12 +118,12 @@ function renderVolumeCard(v) {
           ${statusBadge} ${crawlBadge} ${watchBadge}
         </div>
         <div class="volume-actions">
-          <button class="small" data-action="reindex" data-id="${v.id}" ${v.crawling ? 'disabled' : ''}>Reindex</button>
-          <button class="small" data-action="history" data-id="${v.id}">${historyExpanded ? 'Hide history' : 'History'}</button>
-          <button class="small" data-action="insights" data-id="${v.id}">${insightsExpanded ? 'Hide insights' : 'Insights'}</button>
-          <button class="small" data-action="test" data-id="${v.id}">Test</button>
-          <button class="small" data-action="edit" data-id="${v.id}">Edit</button>
-          <button class="small danger" data-action="delete" data-id="${v.id}">Delete</button>
+          ${actionBtn('reindex', v.id, 'Reindex now', { disabled: v.crawling })}
+          ${actionBtn('history', v.id, historyExpanded ? 'Hide crawl history' : 'Show crawl history', { pressed: historyExpanded })}
+          ${actionBtn('insights', v.id, insightsExpanded ? 'Hide insights' : 'Show insights', { pressed: insightsExpanded, label: 'Insights' })}
+          ${actionBtn('test', v.id, 'Test connection', { label: 'Test' })}
+          ${actionBtn('edit', v.id, 'Edit volume')}
+          ${actionBtn('delete', v.id, 'Delete volume', { danger: true })}
         </div>
       </div>
       <div class="volume-meta">
