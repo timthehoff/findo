@@ -197,24 +197,27 @@ function showMessage(html) {
   resultsEl.innerHTML = `<li class="empty-state muted">${html}</li>`;
 }
 
-function renderCount(n, query) {
+function renderCount(n, query, dateLabel) {
   if (query) {
     countEl.textContent = n >= SEARCH_LIMIT
       ? `Showing the first ${SEARCH_LIMIT} results — narrow your search to see more`
       : `${n} ${n === 1 ? 'result' : 'results'}`;
+    if (dateLabel) countEl.textContent += ` · modified ${dateLabel}, newest first`;
   } else {
     countEl.textContent = `${n} ${n === 1 ? 'item' : 'items'}`;
   }
 }
 
-function renderResults(entries, query) {
+// `query` is what the user typed; `nameQuery` is the part left after a date
+// phrase ("report last month" -> "report") and is what rows highlight.
+function renderResults(entries, query, nameQuery = query, dateLabel = '') {
   if (entries.length === 0) {
     showMessage(query
       ? `No results for “${escapeHTML(query)}” — Findo sniffed everywhere. Try a different scent. 🐕`
       : 'Nothing in this folder.');
     return;
   }
-  renderCount(entries.length, query);
+  renderCount(entries.length, query, dateLabel);
 
   // `query` is empty when browsing a folder, where every row already lives
   // in the current location, so the "show in folder" button is omitted.
@@ -226,7 +229,7 @@ function renderResults(entries, query) {
     const contentURL = `/files/content/${encodeURIComponent(f.name)}?volume=${f.volumeId}&path=${encodeURIComponent(f.path)}`;
     const sharePath = vol ? `${vol.share}/${f.path}` : f.path;
     const parent = f.path.includes('/') ? f.path.slice(0, f.path.lastIndexOf('/')) : '';
-    const nameHTML = highlight(f.name, query);
+    const nameHTML = highlight(f.name, nameQuery);
     const name = f.isDir
       ? `<a class="result-name" href="#" data-dir="${escapeHTML(f.path)}" data-vol="${f.volumeId}">${nameHTML}</a>`
       : `<a class="result-name" href="${contentURL}" target="_blank" rel="noopener">${nameHTML}</a>`;
@@ -308,10 +311,13 @@ async function performSearch(query) {
 
   const volId = volumeSelect.value;
   try {
+    // tz so "today"/"last month" start at the viewer's midnight, not the server's.
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     let url = `/search?q=${encodeURIComponent(query)}&limit=${SEARCH_LIMIT}${hiddenParam()}`;
+    if (tz) url += `&tz=${encodeURIComponent(tz)}`;
     if (volId) url += `&volume=${volId}`;
     const body = await getJSON(url);
-    renderResults(body.entries || [], query);
+    renderResults(body.entries || [], query, body.nameQuery, body.modified ? body.modified.phrase : '');
   } catch (e) {
     errEl.textContent = e.message;
   }

@@ -98,6 +98,13 @@ comment for the `curl` command that registers it as a volume).
 ## Backend conventions (Go, `backend/`)
 
 - Module: `github.com/thoff/findo/backend`, Go 1.25.
+- Search dates: `internal/datequery` hand-parses a time phrase out of the
+  query ("report last month", "in March 2024", "since 2023") into a
+  `[from,to)` mtime range; the rest is the name match. `last/past N units` is
+  a trailing window, `this X` is calendar-to-date, months/years need a keyword
+  (so "invoice 2023" stays a name search). `/search` also takes
+  `modified_after`/`modified_before` (YYYY-MM-DD or unix) and `tz`, and
+  reports the detected range as `modified`. A bounded range sorts newest-first.
 - Layout: `cmd/findo-server` (entrypoint) · `internal/config` (env/.env
   loading; just `FINDO_MASTER_KEY`/`HTTP_ADDR`/`DB_PATH` — no SMB connection
   details) · `internal/crypto` (AES-256-GCM encrypt/decrypt for volume

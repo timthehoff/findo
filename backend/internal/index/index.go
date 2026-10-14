@@ -422,16 +422,36 @@ func (idx *Index) List(volumeID int64, dir string, includeHidden bool) ([]File, 
 	return scanFiles(rows)
 }
 
-// Search returns files/dirs whose name contains q (case-insensitive).
-// volumeID == 0 searches across every volume; otherwise it's scoped to one.
-// Unless includeHidden is set, dotfiles and anything inside a dot-directory
-// (any path component starting with ".") are left out.
-func (idx *Index) Search(volumeID int64, q string, limit int, includeHidden bool) ([]File, error) {
+// TimeRange is a half-open [From, To) span of modification times in unix
+// seconds; zero means unbounded on that side.
+type TimeRange struct {
+	From int64
+	To   int64
+}
+
+// Search returns files/dirs whose name contains q (case-insensitive), limited
+// to those modified within modified. volumeID == 0 searches across every
+// volume; otherwise it's scoped to one. Unless includeHidden is set, dotfiles
+// and anything inside a dot-directory (any path component starting with ".")
+// are left out. A bounded modified range sorts newest-first, since "what
+// changed lately" is the point; otherwise results are ordered by name.
+func (idx *Index) Search(volumeID int64, q string, limit int, includeHidden bool, modified TimeRange) ([]File, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
 	where := `name LIKE ? ESCAPE '\'`
 	args := []interface{}{"%" + likeEscape(q) + "%"}
+	order := `name ASC`
+	if modified.From != 0 {
+		where += ` AND mod_time >= ?`
+		args = append(args, modified.From)
+		order = `mod_time DESC, name ASC`
+	}
+	if modified.To != 0 {
+		where += ` AND mod_time < ?`
+		args = append(args, modified.To)
+		order = `mod_time DESC, name ASC`
+	}
 	if volumeID != 0 {
 		where = `volume_id = ? AND ` + where
 		args = append([]interface{}{volumeID}, args...)
@@ -441,7 +461,7 @@ func (idx *Index) Search(volumeID int64, q string, limit int, includeHidden bool
 	}
 	rows, err := idx.db.Query(
 		`SELECT volume_id, path, name, dir, ext, is_dir, size, mod_time FROM files
-		 WHERE `+where+` ORDER BY name ASC LIMIT ?`,
+		 WHERE `+where+` ORDER BY `+order+` LIMIT ?`,
 		append(args, limit)...,
 	)
 	if err != nil {
