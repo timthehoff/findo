@@ -21,6 +21,7 @@ import (
 	"github.com/hirochachacha/go-smb2"
 
 	"github.com/thoff/findo/backend/internal/dashboard"
+	"github.com/thoff/findo/backend/internal/datequery"
 	"github.com/thoff/findo/backend/internal/index"
 	"github.com/thoff/findo/backend/internal/smbclient"
 )
@@ -357,15 +358,48 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{"path": dir, "entries": files})
 }
 
+// handleSearch matches names and, optionally, modification time. The time
+// range comes from a phrase in q ("report last month", "in March 2024") and/or
+// explicit modified_after / modified_before params (YYYY-MM-DD or unix
+// seconds), which override the phrase on their side. tz (an IANA name, sent
+// by the browser) decides where days and months begin; the server's zone
+// otherwise, which is UTC in a container.
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query().Get("q")
-	if q == "" {
+	params := r.URL.Query()
+	q := params.Get("q")
+
+	loc := time.Local
+	if name := params.Get("tz"); name != "" {
+		l, err := time.LoadLocation(name)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid 'tz' query param")
+			return
+		}
+		loc = l
+	}
+
+	nameQuery, parsed, phrase := datequery.Parse(q, time.Now().In(loc))
+	mod := parsed
+	for _, p := range []struct {
+		key string
+		dst *int64
+	}{{"modified_after", &mod.From}, {"modified_before", &mod.To}} {
+		if raw := params.Get(p.key); raw != "" {
+			ts, err := parseTimeParam(raw, loc)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "invalid '"+p.key+"' query param")
+				return
+			}
+			*p.dst = ts
+		}
+	}
+	if q == "" && mod.IsZero() {
 		writeError(w, http.StatusBadRequest, "missing required query param 'q'")
 		return
 	}
 
 	var volumeID int64
-	if raw := r.URL.Query().Get("volume"); raw != "" {
+	if raw := params.Get("volume"); raw != "" {
 		id, err := strconv.ParseInt(raw, 10, 64)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "invalid 'volume' query param")
@@ -374,13 +408,25 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		volumeID = id
 	}
 
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	files, err := s.idx.Search(volumeID, q, limit, wantsHidden(r))
+	limit, _ := strconv.Atoi(params.Get("limit"))
+	files, err := s.idx.Search(volumeID, nameQuery, limit, wantsHidden(r), index.TimeRange(mod))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"query": q, "entries": files})
+	resp := map[string]interface{}{"query": q, "nameQuery": nameQuery, "entries": files}
+	if !mod.IsZero() {
+		resp["modified"] = map[string]interface{}{"from": mod.From, "to": mod.To, "phrase": phrase}
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// parseTimeParam accepts YYYY-MM-DD (start of that day in loc) or unix seconds.
+func parseTimeParam(raw string, loc *time.Location) (int64, error) {
+	if t, err := time.ParseInLocation("2006-01-02", raw, loc); err == nil {
+		return t.Unix(), nil
+	}
+	return strconv.ParseInt(raw, 10, 64)
 }
 
 func (s *Server) handleContent(w http.ResponseWriter, r *http.Request) {

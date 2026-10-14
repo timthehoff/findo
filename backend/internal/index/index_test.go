@@ -3,6 +3,7 @@ package index
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -64,7 +65,7 @@ func TestUpsertBatchInsertsAndUpdates(t *testing.T) {
 		t.Fatalf("update not applied: %+v", got)
 	}
 
-	all, err := idx.Search(testVolume, "budget", 10, true)
+	all, err := idx.Search(testVolume, "budget", 10, true, TimeRange{})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -212,7 +213,7 @@ func TestStreamUpsertBatches(t *testing.T) {
 		t.Fatalf("expected 5 written, got %d", written)
 	}
 
-	all, err := idx.Search(testVolume, "f", 10, true)
+	all, err := idx.Search(testVolume, "f", 10, true, TimeRange{})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -261,7 +262,7 @@ func TestSearchAcrossAllVolumes(t *testing.T) {
 		t.Fatalf("UpsertBatch: %v", err)
 	}
 
-	all, err := idx.Search(0, "report", 10, true)
+	all, err := idx.Search(0, "report", 10, true, TimeRange{})
 	if err != nil {
 		t.Fatalf("Search across all volumes: %v", err)
 	}
@@ -269,7 +270,7 @@ func TestSearchAcrossAllVolumes(t *testing.T) {
 		t.Fatalf("expected 2 results across both volumes, got %d: %+v", len(all), all)
 	}
 
-	scoped, err := idx.Search(1, "report", 10, true)
+	scoped, err := idx.Search(1, "report", 10, true, TimeRange{})
 	if err != nil {
 		t.Fatalf("Search scoped to volume 1: %v", err)
 	}
@@ -434,7 +435,7 @@ func TestHiddenEntriesAreExcludedUnlessRequested(t *testing.T) {
 		return out
 	}
 
-	visible, err := idx.Search(testVolume, "report", 50, false)
+	visible, err := idx.Search(testVolume, "report", 50, false, TimeRange{})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -442,7 +443,7 @@ func TestHiddenEntriesAreExcludedUnlessRequested(t *testing.T) {
 		t.Fatalf("hidden search = %v, want only docs/report.md and report.txt (no dotfiles, nothing inside a dot-dir)", got)
 	}
 
-	all, err := idx.Search(0, "report", 50, true)
+	all, err := idx.Search(0, "report", 50, true, TimeRange{})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -464,4 +465,38 @@ func TestHiddenEntriesAreExcludedUnlessRequested(t *testing.T) {
 	if len(docs) != 2 {
 		t.Fatalf("List(includeHidden) docs = %v, want both entries", paths(docs))
 	}
+}
+
+func TestSearchModifiedRange(t *testing.T) {
+	idx := openTest(t)
+	run := mustRun(t, idx)
+	err := idx.UpsertBatch([]File{
+		{VolumeID: testVolume, Path: "a-old.txt", Name: "a-old.txt", Ext: "txt", ModTime: 100},
+		{VolumeID: testVolume, Path: "b-mid.txt", Name: "b-mid.txt", Ext: "txt", ModTime: 200},
+		{VolumeID: testVolume, Path: "c-new.txt", Name: "c-new.txt", Ext: "txt", ModTime: 300},
+	}, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := func(r TimeRange) []string {
+		got, err := idx.Search(testVolume, "", 10, true, r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, f := range got {
+			out = append(out, f.Name)
+		}
+		return out
+	}
+	eq := func(got []string, want ...string) {
+		t.Helper()
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+	eq(names(TimeRange{}), "a-old.txt", "b-mid.txt", "c-new.txt") // by name
+	eq(names(TimeRange{From: 200}), "c-new.txt", "b-mid.txt")     // inclusive From, newest first
+	eq(names(TimeRange{To: 300}), "b-mid.txt", "a-old.txt")       // exclusive To
+	eq(names(TimeRange{From: 150, To: 250}), "b-mid.txt")
 }
