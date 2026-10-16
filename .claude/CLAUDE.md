@@ -93,9 +93,9 @@ copied from `backend/.env.example`) or is supplied by the project owner —
 ask rather than guessing. SMB volume connection details themselves aren't
 environment config: they're added at runtime via `POST /volumes` or the
 dashboard, and the server starts fine with zero configured. For local
-end-to-end testing without the real NAS, run `make run` and use
-`backend/docker-compose.dev.yml` (the only Docker left: a throwaway Samba
-container seeded from `backend/testdata/seed/`; see its
+end-to-end testing without the real NAS, run `make run` and `make samba-up`
+(`backend/testdata/samba/compose.yml`, the only Docker left and only a test
+fixture: a throwaway Samba container seeded from `backend/testdata/seed/`; see its
 comment for the `curl` command that registers it as a volume).
 
 ## Backend conventions (Go, `backend/`)

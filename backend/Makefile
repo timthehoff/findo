@@ -9,7 +9,7 @@ LDFLAGS := -X main.version=$(VERSION)
 # Dev port; 8080 is the production default. Env beats .env, so this wins.
 DEV_ADDR ?= :8081
 
-.PHONY: build check fix test run
+.PHONY: build check fix test run samba-up samba-down
 
 build:
 	go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY) $(PKG)
@@ -31,3 +31,11 @@ test:
 
 run:
 	HTTP_ADDR=$(DEV_ADDR) go run $(PKG)
+
+# Throwaway Samba server for trying Findo without the real NAS; see the
+# comment in testdata/samba/compose.yml for registering it as a volume.
+samba-up:
+	docker compose -f testdata/samba/compose.yml up -d
+
+samba-down:
+	docker compose -f testdata/samba/compose.yml down

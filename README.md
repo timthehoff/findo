@@ -69,24 +69,26 @@ All run from `backend/`:
 | `make fix` | `gofmt -w` to auto-format |
 | `make test` | `go test -race ./...` |
 | `make run` | `go run ./cmd/findo-server` on `:8081` (override with `DEV_ADDR`) |
+| `make samba-up` / `samba-down` | start/stop the throwaway Samba test fixture (needs Docker) |
 
 CI runs `make check test build` on every push/PR.
 
 ### Dev fixture without a real NAS
 
-`backend/docker-compose.dev.yml` starts a throwaway Samba container seeded with
-sample files from `backend/testdata/seed/` (the one remaining use of Docker),
-useful for exercising the HTTP API end-to-end without access to the real NAS:
+`make samba-up` starts a throwaway Samba container (`backend/testdata/samba/compose.yml`)
+seeded with sample files from `backend/testdata/seed/`. It's the only use of
+Docker: a test fixture, not how Findo runs. Handy for exercising the HTTP API
+without access to the real NAS:
 
 ```sh
 cd backend
-docker compose -f docker-compose.dev.yml up -d
-make run
+make samba-up
+make run   # Findo itself runs natively, on :8081
 ```
 
 Then visit `http://localhost:8081/volumes.html` and add it as a volume (host
 `localhost:1445`, share `testshare`, user/pass `testuser`/`testpass`), or use
-the `curl -X POST /volumes` command in the compose file's comment. A volume's
+the `curl -X POST /volumes` command in `testdata/samba/compose.yml`. A volume's
 host may carry a port (`host:port`) for servers not on the standard 445.
 
 ## Deploying (macOS)
