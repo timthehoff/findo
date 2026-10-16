@@ -1,12 +1,12 @@
-# Dev-only stack: a throwaway Samba server seeded with sample files, plus
-# the findo backend pointed at it. Lets the HTTP API be exercised end-to-end
-# without access to the real NAS. Not for production use.
+# Dev-only: a throwaway Samba server seeded with sample files, so the
+# backend can be exercised end-to-end without access to the real NAS. Findo
+# itself runs natively (`make run`, on :8081); only this fixture uses Docker.
 #
-# The findo service starts with no volumes configured — register the samba
-# container as one after `docker compose up`:
+# Register it as a volume once the server is up. The Mac's own file sharing
+# owns port 445, so Samba is published on 1445 and the host carries the port:
 #
 #   curl -X POST localhost:8081/volumes -d '{
-#     "name": "dev samba", "host": "samba", "share": "testshare",
+#     "name": "dev samba", "host": "localhost:1445", "share": "testshare",
 #     "username": "testuser", "password": "testpass"
 #   }'
 services:
@@ -17,21 +17,3 @@ services:
       - "1445:445"
     volumes:
       - ./testdata/seed:/share
-
-  findo:
-    build: .
-    depends_on:
-      - samba
-    ports:
-      - "8081:8080"
-    environment:
-      # Dev-only key, fine to commit: this stack's DB never holds anything
-      # but the throwaway samba container's own dummy credentials.
-      FINDO_MASTER_KEY: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
-      HTTP_ADDR: ":8080"
-      DB_PATH: "/data/findo.db"
-    volumes:
-      - findo-dev-db:/data
-
-volumes:
-  findo-dev-db:

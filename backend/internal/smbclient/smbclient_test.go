@@ -137,3 +137,19 @@ func TestWalkWideTreeConcurrently(t *testing.T) {
 		t.Fatalf("expected %d entries, got %d", n*2, len(c.paths()))
 	}
 }
+
+func TestSplitHost(t *testing.T) {
+	cases := []struct{ in, hostname, addr string }{
+		{"nas.lan", "nas.lan", "nas.lan:445"},
+		{"192.168.1.5", "192.168.1.5", "192.168.1.5:445"},
+		{"localhost:1445", "localhost", "localhost:1445"},
+		{"::1", "::1", "[::1]:445"},
+		{"[::1]:1445", "::1", "[::1]:1445"},
+	}
+	for _, c := range cases {
+		hostname, addr := splitHost(c.in)
+		if hostname != c.hostname || addr != c.addr {
+			t.Errorf("splitHost(%q) = %q, %q; want %q, %q", c.in, hostname, addr, c.hostname, c.addr)
+		}
+	}
+}

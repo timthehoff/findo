@@ -40,6 +40,17 @@ func New(host, share, user, pass string) *Client {
 	return &Client{host: host, share: share, user: user, pass: pass}
 }
 
+// splitHost returns the bare hostname (for the UNC share path) and the TCP
+// address to dial. A volume's host may carry a port ("localhost:1445") for
+// servers not on the standard 445, such as the dev Samba container, where
+// the Mac's own file sharing already owns 445.
+func splitHost(host string) (hostname, addr string) {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		return h, host
+	}
+	return host, net.JoinHostPort(host, "445")
+}
+
 // dial opens a fresh TCP connection, SMB2 session, and mounted share.
 // Factored out of connectLocked so Watch can open its own dedicated
 // session (a CHANGE_NOTIFY request sits outstanding until an event
@@ -47,9 +58,10 @@ func New(host, share, user, pass string) *Client {
 // expects a timely reply) without duplicating the setup/error-cleanup
 // dance.
 func dial(host, share, user, pass string) (net.Conn, *smb2.Session, *smb2.Share, error) {
-	conn, err := net.Dial("tcp", net.JoinHostPort(host, "445"))
+	hostname, addr := splitHost(host)
+	conn, err := net.Dial("tcp", addr)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("dial %s:445: %w", host, err)
+		return nil, nil, nil, fmt.Errorf("dial %s: %w", addr, err)
 	}
 
 	d := &smb2.Dialer{
@@ -65,7 +77,7 @@ func dial(host, share, user, pass string) (net.Conn, *smb2.Session, *smb2.Share,
 		return nil, nil, nil, fmt.Errorf("smb session setup: %w", err)
 	}
 
-	fs, err := sess.Mount(fmt.Sprintf(`\\%s\%s`, host, share))
+	fs, err := sess.Mount(fmt.Sprintf(`\\%s\%s`, hostname, share))
 	if err != nil {
 		sess.Logoff()
 		conn.Close()

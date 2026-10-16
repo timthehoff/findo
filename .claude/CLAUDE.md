@@ -16,8 +16,8 @@ limited to it) searchable and previewable from any device.
 
 ## Target architecture
 
-**Backend index/proxy service** (self-hosted on the home network, e.g.
-Docker), in `backend/`:
+**Backend index/proxy service** (self-hosted on the home network, running
+natively on macOS), in `backend/`:
 - Talks to the NAS over SMB (has full driver support, unlike iOS).
 - Crawls and indexes file metadata (name, path, type, mtime, size).
 - Exposes an HTTP API: search, list, and streamed file read (HTTP Range /
@@ -66,15 +66,17 @@ hence `/volumes.html`; `/search.html` 301s to `/`.)
 
 ## Deployment
 
-Docker-first. `backend/Dockerfile` builds a static, non-root distroless
-image (version injected via `-X main.version`); `deploy/docker-compose.yml`
-is the production stack (named volume `findo-data` at `/data`, settings from
-an adjacent `.env`); `install.sh` is the curl-and-run installer/updater (it
-generates `FINDO_MASTER_KEY` once and never overwrites an existing `.env`).
-`.github/workflows/release.yml` publishes multi-arch images to
-`ghcr.io/timthehoff/findo` on `vX.Y.Z` tags. Register NAS volumes by IP or
-DNS name, not `.local` mDNS names (they don't resolve in a bridge-networked
-container).
+Native macOS, no Docker. `deploy/macos/install.sh` builds from the checkout
+and installs a launchd agent (`com.findo.server`, rendered from
+`deploy/macos/com.findo.server.plist.template`): binary in `~/.local/bin`,
+`.env` + `findo.db` in `~/Library/Application Support/Findo` (the agent's
+working directory), log in `~/Library/Logs/Findo`. It generates
+`FINDO_MASTER_KEY` once and never overwrites an existing `.env`. See
+`docs/macos-install.md`. The version comes from the git tag via `make build`
+(`-X main.version`, `dev` when `HEAD` isn't tagged); CI no longer builds
+releases, so they're published by hand (`gh release create`). Register NAS
+volumes by IP or DNS name, not `.local` mDNS names. A volume's host may be
+`host:port` (the dev Samba container listens on `localhost:1445`).
 `GET /version` (`httpapi/version.go`) reports the running version and, for
 release builds, whether GitHub's latest release is newer (looked up
 server-side, cached 6h, failures retried hourly); `js/version.js` shows it
@@ -91,8 +93,9 @@ copied from `backend/.env.example`) or is supplied by the project owner —
 ask rather than guessing. SMB volume connection details themselves aren't
 environment config: they're added at runtime via `POST /volumes` or the
 dashboard, and the server starts fine with zero configured. For local
-end-to-end testing without the real NAS, use `backend/docker-compose.dev.yml`
-(throwaway Samba container seeded from `backend/testdata/seed/`; see its
+end-to-end testing without the real NAS, run `make run` and use
+`backend/docker-compose.dev.yml` (the only Docker left: a throwaway Samba
+container seeded from `backend/testdata/seed/`; see its
 comment for the `curl` command that registers it as a volume).
 
 ## Backend conventions (Go, `backend/`)
