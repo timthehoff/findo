@@ -46,87 +46,135 @@ const (
 
 var types = map[string]Info{}
 
-func init() {
-	for _, r := range []struct {
-		ext, mime, kind string
-		inline          bool
-	}{
-		{"pdf", "application/pdf", KindPDF, true},
-
-		{"doc", "application/msword", KindDoc, false},
-		{"docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", KindDoc, false},
-		{"pages", "application/vnd.apple.pages", KindDoc, false},
-		{"rtf", "application/rtf", KindDoc, false},
-
-		{"xls", "application/vnd.ms-excel", KindXLS, false},
-		{"xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", KindXLS, false},
-		{"numbers", "application/vnd.apple.numbers", KindXLS, false},
-		{"csv", textPlain, KindXLS, true},
-
-		{"ppt", "application/vnd.ms-powerpoint", KindPPT, false},
-		{"pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation", KindPPT, false},
-		{"key", "application/vnd.apple.keynote", KindPPT, false},
-
-		{"jpg", "image/jpeg", KindImg, true},
-		{"jpeg", "image/jpeg", KindImg, true},
-		{"png", "image/png", KindImg, true},
-		{"gif", "image/gif", KindImg, true},
-		{"webp", "image/webp", KindImg, true},
-		{"heic", "image/heic", KindImg, false},
-		{"avif", "image/avif", KindImg, true},
-		{"svg", "image/svg+xml", KindFile, false},
-
-		{"mp4", "video/mp4", KindVid, true},
-		{"mov", "video/quicktime", KindVid, true},
-		{"avi", "video/x-msvideo", KindVid, false},
-		{"mkv", "video/x-matroska", KindVid, false},
-		{"m4v", "video/mp4", KindVid, true},
-		{"webm", "video/webm", KindVid, true},
-
-		// Audio: inline only for what Safari and Chromium both play; the rest
-		// (and MIDI, which no browser synthesizes) download.
-		{"mp3", "audio/mpeg", KindAud, true},
-		{"m4a", "audio/mp4", KindAud, true},
-		{"aac", "audio/aac", KindAud, true},
-		{"wav", "audio/wav", KindAud, true},
-		{"flac", "audio/flac", KindAud, true},
-		{"m4b", "audio/mp4", KindAud, false},
-		{"ogg", "audio/ogg", KindAud, false},
-		{"oga", "audio/ogg", KindAud, false},
-		{"opus", "audio/ogg", KindAud, false},
-		{"aiff", "audio/aiff", KindAud, false},
-		{"aif", "audio/aiff", KindAud, false},
-		{"caf", "audio/x-caf", KindAud, false},
-		{"aifc", "audio/aiff", KindAud, false},
-		{"m4p", "audio/mp4", KindAud, false}, // DRM-protected AAC; won't play outside Apple's apps
-		{"m4r", "audio/mp4", KindAud, false}, // iPhone ringtone
-		{"adts", "audio/aac", KindAud, false},
-		{"au", "audio/basic", KindAud, false},
-		{"snd", "audio/basic", KindAud, false},
-		{"ac3", "audio/ac3", KindAud, false},
-		{"ec3", "audio/eac3", KindAud, false},
-		{"wma", "audio/x-ms-wma", KindAud, false},
-		{"amr", "audio/amr", KindAud, false},
-		{"mid", "audio/midi", KindAud, false},
-		{"midi", "audio/midi", KindAud, false},
-		{"kar", "audio/midi", KindAud, false},
-
-		{"zip", "application/zip", KindZip, false},
-		{"tar", "application/x-tar", KindZip, false},
-		{"gz", "application/gzip", KindZip, false},
-		{"7z", "application/x-7z-compressed", KindZip, false},
-
-		{"txt", textPlain, KindTxt, true},
-		{"md", textPlain, KindTxt, true},
-		{"log", textPlain, KindTxt, true},
-		{"json", "application/json", KindTxt, true},
-		{"xml", "text/xml; charset=utf-8", KindTxt, true},
-
-		{"html", "text/html; charset=utf-8", KindFile, false},
-		{"htm", "text/html; charset=utf-8", KindFile, false},
-	} {
-		types[r.ext] = Info{MIME: r.mime, Kind: r.kind, Inline: r.inline}
+// add registers extensions under one definition. A repeated extension is a
+// mistake in this table, so it panics at startup (and in every test) rather
+// than silently letting the later entry win.
+func add(mime, kind string, inline bool, exts ...string) {
+	for _, ext := range exts {
+		if _, dup := types[ext]; dup {
+			panic("filetype: duplicate extension " + ext)
+		}
+		types[ext] = Info{MIME: mime, Kind: kind, Inline: inline}
 	}
+}
+
+func init() {
+	add("application/pdf", KindPDF, true, "pdf")
+
+	add("application/msword", KindDoc, false, "doc")
+	add("application/vnd.openxmlformats-officedocument.wordprocessingml.document", KindDoc, false, "docx")
+	add("application/vnd.apple.pages", KindDoc, false, "pages")
+	add("application/rtf", KindDoc, false, "rtf")
+
+	add("application/vnd.ms-excel", KindXLS, false, "xls")
+	add("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", KindXLS, false, "xlsx")
+	add("application/vnd.apple.numbers", KindXLS, false, "numbers")
+	add(textPlain, KindXLS, true, "csv", "tsv")
+
+	add("application/vnd.ms-powerpoint", KindPPT, false, "ppt")
+	add("application/vnd.openxmlformats-officedocument.presentationml.presentation", KindPPT, false, "pptx")
+	add("application/vnd.apple.keynote", KindPPT, false, "key")
+
+	// Images. Inline only what Safari and Chromium both render; HEIC, TIFF,
+	// JPEG XL and the like download. SVG is an image but never inline (it can
+	// carry script).
+	add("image/jpeg", KindImg, true, "jpg", "jpeg", "jfif")
+	add("image/png", KindImg, true, "png")
+	add("image/apng", KindImg, true, "apng")
+	add("image/gif", KindImg, true, "gif")
+	add("image/webp", KindImg, true, "webp")
+	add("image/avif", KindImg, true, "avif")
+	add("image/bmp", KindImg, true, "bmp")
+	add("image/x-icon", KindImg, true, "ico")
+	add("image/svg+xml", KindImg, false, "svg")
+	add("image/heic", KindImg, false, "heic")
+	add("image/heif", KindImg, false, "heif")
+	add("image/tiff", KindImg, false, "tif", "tiff")
+	add("image/jxl", KindImg, false, "jxl")
+	add("image/jp2", KindImg, false, "jp2", "j2k")
+	add("image/vnd.adobe.photoshop", KindImg, false, "psd")
+	add("application/postscript", KindImg, false, "ai", "eps")
+	add("image/icns", KindImg, false, "icns")
+	add("image/x-tga", KindImg, false, "tga")
+	add("image/x-xcf", KindImg, false, "xcf")
+	// Camera raw.
+	add("image/x-canon-cr2", KindImg, false, "cr2")
+	add("image/x-canon-cr3", KindImg, false, "cr3")
+	add("image/x-nikon-nef", KindImg, false, "nef")
+	add("image/x-sony-arw", KindImg, false, "arw")
+	add("image/x-adobe-dng", KindImg, false, "dng")
+	add("image/x-olympus-orf", KindImg, false, "orf")
+	add("image/x-panasonic-rw2", KindImg, false, "rw2")
+	add("image/x-fuji-raf", KindImg, false, "raf")
+	add("image/x-pentax-pef", KindImg, false, "pef")
+
+	// Video. Inline: containers/codecs Safari and Chromium both play.
+	// ".ts" is deliberately absent: it's both MPEG transport stream and
+	// TypeScript, and serving a video as text would be far worse than a
+	// download.
+	add("video/mp4", KindVid, true, "mp4", "m4v")
+	add("video/quicktime", KindVid, true, "mov")
+	add("video/webm", KindVid, true, "webm")
+	add("video/x-msvideo", KindVid, false, "avi")
+	add("video/x-matroska", KindVid, false, "mkv")
+	add("video/x-ms-wmv", KindVid, false, "wmv")
+	add("video/x-ms-asf", KindVid, false, "asf")
+	add("video/x-flv", KindVid, false, "flv")
+	add("video/x-f4v", KindVid, false, "f4v")
+	add("video/mpeg", KindVid, false, "mpg", "mpeg", "mpe", "m2v", "vob")
+	add("video/mp2t", KindVid, false, "m2ts", "mts")
+	add("video/3gpp", KindVid, false, "3gp")
+	add("video/3gpp2", KindVid, false, "3g2")
+	add("video/ogg", KindVid, false, "ogv")
+	add("video/divx", KindVid, false, "divx")
+	add("video/x-dv", KindVid, false, "dv")
+	add("application/mxf", KindVid, false, "mxf")
+	add("application/vnd.rn-realmedia", KindVid, false, "rm")
+	add("application/vnd.rn-realmedia-vbr", KindVid, false, "rmvb")
+
+	// Audio: inline only for what Safari and Chromium both play; the rest
+	// (Apple's AIFF/CAF, MIDI, which no browser synthesizes, ...) download.
+	add("audio/mpeg", KindAud, true, "mp3")
+	add("audio/mp4", KindAud, true, "m4a")
+	add("audio/aac", KindAud, true, "aac")
+	add("audio/wav", KindAud, true, "wav")
+	add("audio/flac", KindAud, true, "flac")
+	add("audio/mp4", KindAud, false, "m4b", "m4p", "m4r") // audiobook, DRM-protected AAC, ringtone
+	add("audio/aac", KindAud, false, "adts")
+	add("audio/ogg", KindAud, false, "ogg", "oga", "opus")
+	add("audio/aiff", KindAud, false, "aiff", "aif", "aifc")
+	add("audio/x-caf", KindAud, false, "caf")
+	add("audio/x-ms-wma", KindAud, false, "wma")
+	add("audio/amr", KindAud, false, "amr")
+	add("audio/basic", KindAud, false, "au", "snd")
+	add("audio/ac3", KindAud, false, "ac3")
+	add("audio/eac3", KindAud, false, "ec3")
+	add("audio/midi", KindAud, false, "mid", "midi", "kar")
+
+	add("application/zip", KindZip, false, "zip")
+	add("application/x-tar", KindZip, false, "tar")
+	add("application/gzip", KindZip, false, "gz")
+	add("application/x-7z-compressed", KindZip, false, "7z")
+
+	// Plain text and source code share the text tile (the tile palette is
+	// full; the extension printed on it tells them apart). All are served as
+	// text/plain so a browser shows them instead of executing or guessing.
+	add(textPlain, KindTxt, true, "txt", "md", "mdx", "rst", "adoc", "org", "log")
+	add("application/json", KindTxt, true, "json")
+	add("text/xml; charset=utf-8", KindTxt, true, "xml")
+	add(textPlain, KindTxt, true, strings.Fields(`
+		c h cc cpp cxx c++ hpp hh hxx m mm cs java kt kts scala groovy go rs zig
+		py pyw rb php pl pm lua r jl swift dart hs ml mli erl hrl ex exs clj cljs
+		lisp el vim asm s
+		js mjs cjs jsx tsx vue svelte css scss sass less
+		sh bash zsh fish ps1 psm1 bat cmd
+		sql graphql gql proto tf hcl nix gradle mk cmake
+		yaml yml toml ini cfg conf properties env jsonc json5
+		tex bib diff patch gitignore gitattributes editorconfig
+	`)...)
+
+	// Markup that can run script on this origin: known, never inline.
+	add("text/html; charset=utf-8", KindFile, false, "html", "htm")
 }
 
 // ByExt looks up a lowercase extension without its dot.

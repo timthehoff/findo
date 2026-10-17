@@ -36,9 +36,28 @@ func TestLookup(t *testing.T) {
 		{"budget.numbers", "application/vnd.apple.numbers", KindXLS, false},
 		{"archive.tar.gz", "application/gzip", KindZip, false},
 		{"page.html", "text/html; charset=utf-8", KindFile, false},
-		{"logo.svg", "image/svg+xml", KindFile, false},
+		{"logo.svg", "image/svg+xml", KindImg, false},
+		{"IMG_0001.HEIC", "image/heic", KindImg, false},
+		{"scan.tiff", "image/tiff", KindImg, false},
+		{"shot.CR2", "image/x-canon-cr2", KindImg, false},
+		{"mockup.psd", "image/vnd.adobe.photoshop", KindImg, false},
+		{"icon.bmp", "image/bmp", KindImg, true},
+		{"anim.apng", "image/apng", KindImg, true},
+		{"movie.wmv", "video/x-ms-wmv", KindVid, false},
+		{"movie.WEBM", "video/webm", KindVid, true},
+		{"clip.3gp", "video/3gpp", KindVid, false},
+		{"cam.m2ts", "video/mp2t", KindVid, false},
+		{"main.go", "text/plain; charset=utf-8", KindTxt, true},
+		{"App.TSX", "text/plain; charset=utf-8", KindTxt, true},
+		{"style.scss", "text/plain; charset=utf-8", KindTxt, true},
+		{"deploy.sh", "text/plain; charset=utf-8", KindTxt, true},
+		{"config.yaml", "text/plain; charset=utf-8", KindTxt, true},
+		{"schema.sql", "text/plain; charset=utf-8", KindTxt, true},
+		{"video.ts", octet, KindFile, false},
 		{"README", octet, KindFile, false},
-		{".gitignore", octet, KindFile, false},
+		{".DS_Store", octet, KindFile, false},
+		{".gitignore", "text/plain; charset=utf-8", KindTxt, true},
+		{"values.yml", "text/plain; charset=utf-8", KindTxt, true},
 		{"weird.xyz", octet, KindFile, false},
 	}
 	for _, tt := range tests {
@@ -62,6 +81,26 @@ func TestActiveContentIsNeverInline(t *testing.T) {
 			t.Errorf("%s is inline as %s", ext, info.MIME)
 		}
 	}
+}
+
+// Code is served as text/plain so it displays, and the registry panics on a
+// repeated extension: importing the package at all proves there are none.
+func TestSourceCodeIsPlainTextInline(t *testing.T) {
+	for _, ext := range []string{"py", "js", "go", "rs", "c", "cpp", "java", "rb", "php", "sh", "css", "yml", "toml"} {
+		info, ok := ByExt(ext)
+		if !ok || info.MIME != "text/plain; charset=utf-8" || !info.Inline || info.Kind != KindTxt {
+			t.Errorf("%s = %+v (known=%v)", ext, info, ok)
+		}
+	}
+}
+
+func TestAddPanicsOnDuplicateExtension(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("add of an existing extension did not panic")
+		}
+	}()
+	add("text/plain", KindTxt, true, "pdf")
 }
 
 func TestEveryEntryIsWellFormed(t *testing.T) {
