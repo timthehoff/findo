@@ -185,6 +185,22 @@ comment for the `curl` command that registers it as a volume).
   (only `text` exists so far: UTF-8 text, markup and source; a NUL byte or
   mostly invalid UTF-8 means "not text"). `GET /content/status` reports
   per-volume progress and skip/failure reasons for the Volumes page.
+- `/search` returns name matches first (unchanged substring search), then,
+  if there is room under `limit`, files whose extracted text matches
+  (`Index.SearchContent`). Each entry has `match` (`name` or `content`) and,
+  for content, a `snippet`; the response also has `contentMatches`. The query
+  text goes through `tsQuery` (index/contentsearch.go): only letters and
+  digits survive, words are ANDed, the last word is a prefix, and queries
+  with no word of 2+ characters skip content search; date phrases are
+  already stripped, so "last month" alone never searches text. Matches are
+  one row per file (its best chunk by `ts_rank_cd`), exclude files whose name
+  already matched, and honor the volume, hidden and modified-time filters.
+  Only the final page of rows pays for `ts_headline`. Snippets wrap matches
+  in control characters (`index.MarkStart`/`MarkEnd`, which the extractor
+  strips from stored text); `js/search.js` HTML-escapes the snippet and
+  then swaps the markers for `<mark>`, so nothing from a file is ever
+  inserted as HTML. `ts_headline` itself drops HTML-like tags from snippets.
+  Ranking is `ts_rank_cd`, not BM25 (Postgres has none).
 - Tests need Postgres: `make test` runs them through `scripts/with-testdb.sh`,
   which starts a throwaway cluster on a Unix socket in a temp dir and sets
   `FINDO_TEST_DSN`; each test then gets its own schema from `testdb.DSN(t)`.

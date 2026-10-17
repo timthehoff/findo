@@ -150,3 +150,12 @@ func TestChunkEdgeCases(t *testing.T) {
 		t.Errorf("CRLF paragraphs: %q", got)
 	}
 }
+
+// The highlight markers are control characters, so none may survive into
+// stored text; ordinary whitespace must.
+func TestExtractStripsControlCharacters(t *testing.T) {
+	got, err := extractString(t, "txt", "a\x02b\x03c\x01d\x7fe\tf\ng\rh", 1<<20)
+	if err != nil || got != "abcde\tf\ng\rh" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+}

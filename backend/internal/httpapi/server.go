@@ -371,7 +371,8 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{"path": dir, "entries": files})
 }
 
-// handleSearch matches names and, optionally, modification time. The time
+// handleSearch matches names, then the extracted text of files in volumes
+// with content search on, filtered by modification time when given. The time
 // range comes from a phrase in q ("report last month", "in March 2024") and/or
 // explicit modified_after / modified_before params (YYYY-MM-DD or unix
 // seconds), which override the phrase on their side. tz (an IANA name, sent
@@ -422,16 +423,49 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	limit, _ := strconv.Atoi(params.Get("limit"))
-	files, err := s.idx.Search(volumeID, nameQuery, limit, wantsHidden(r), index.TimeRange(mod))
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	hidden := wantsHidden(r)
+	files, err := s.idx.Search(volumeID, nameQuery, limit, hidden, index.TimeRange(mod))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	resp := map[string]interface{}{"query": q, "nameQuery": nameQuery, "entries": files}
+
+	// Name matches come first and keep their place; whatever room is left
+	// goes to files whose extracted text matches.
+	var entries []searchEntry
+	for _, f := range files {
+		entries = append(entries, searchEntry{File: f, Match: "name"})
+	}
+	contentMatches := 0
+	if nameQuery != "" && len(files) < limit {
+		hits, err := s.idx.SearchContent(volumeID, nameQuery, limit-len(files), hidden, index.TimeRange(mod))
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		for _, h := range hits {
+			entries = append(entries, searchEntry{File: h.File, Match: "content", Snippet: h.Snippet})
+		}
+		contentMatches = len(hits)
+	}
+
+	resp := map[string]interface{}{"query": q, "nameQuery": nameQuery, "entries": entries, "contentMatches": contentMatches}
 	if !mod.IsZero() {
 		resp["modified"] = map[string]interface{}{"from": mod.From, "to": mod.To, "phrase": phrase}
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// searchEntry is one /search result: a file whose name matched, or one whose
+// extracted text matched, with the best passage (index.MarkStart/MarkEnd
+// surround the matched words; clients escape it before inserting the marks).
+type searchEntry struct {
+	index.File
+	Match   string `json:"match"` // "name" or "content"
+	Snippet string `json:"snippet,omitempty"`
 }
 
 // parseTimeParam accepts YYYY-MM-DD (start of that day in loc) or unix seconds.
