@@ -16,7 +16,7 @@ previewing or downloading them over HTTP.
 ## Architecture
 
 One component: a **backend index/proxy service** (self-hosted on the home
-network, e.g. Docker) — it talks to the NAS over SMB, crawls and indexes file
+network, running natively on macOS under launchd) — it talks to the NAS over SMB, crawls and indexes file
 metadata, exposes an HTTP API (search, listing, Range-aware streamed read),
 and serves the embedded web UI. See [`backend/`](backend/).
 
@@ -69,51 +69,39 @@ All run from `backend/`:
 | `make fix` | `gofmt -w` to auto-format |
 | `make test` | `go test -race ./...` |
 | `make run` | `go run ./cmd/findo-server` on `:8081` (override with `DEV_ADDR`) |
+| `make samba-up` / `samba-down` | start/stop the throwaway Samba test fixture (needs Docker) |
 
 CI runs `make check test build` on every push/PR.
 
-### Dev stack without a real NAS
+### Dev fixture without a real NAS
 
-`backend/docker-compose.dev.yml` spins up a throwaway Samba container seeded
-with sample files from `backend/testdata/seed/`, plus the findo backend
-pointed at it — useful for exercising the HTTP API end-to-end without access
-to the real NAS:
+`make samba-up` starts a throwaway Samba container (`backend/testdata/samba/compose.yml`)
+seeded with sample files from `backend/testdata/seed/`. It's the only use of
+Docker: a test fixture, not how Findo runs. Handy for exercising the HTTP API
+without access to the real NAS:
 
 ```sh
 cd backend
-docker compose -f docker-compose.dev.yml up --build
+make samba-up
+make run   # Findo itself runs natively, on :8081
 ```
 
-Then visit `http://localhost:8081/volumes.html` and add the samba
-container as a volume (host `samba`, share `testshare`, user/pass
-`testuser`/`testpass`), or hit the API directly — see the compose file's
-comment for the equivalent `curl -X POST /volumes` command.
+Then visit `http://localhost:8081/volumes.html` and add it as a volume (host
+`localhost:1445`, share `testshare`, user/pass `testuser`/`testpass`), or use
+the `curl -X POST /volumes` command in `testdata/samba/compose.yml`. A volume's
+host may carry a port (`host:port`) for servers not on the standard 445.
 
-## Deploying (Docker)
+## Deploying (macOS)
+
+Findo runs natively as a launchd agent that starts at login. The installer
+downloads the newest prebuilt release; re-run it to update:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/timthehoff/findo/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/timthehoff/findo/main/deploy/macos/install.sh | sh
 ```
 
-This writes `~/findo/` (override with `FINDO_DIR`) containing the compose
-file from `deploy/docker-compose.yml` and a `.env` with a freshly generated
-`FINDO_MASTER_KEY` — back that key up; losing it means re-entering every
-stored SMB password. Re-running the command updates to the latest image and
-never touches an existing `.env`. Pin a release with
-`FINDO_VERSION=1.2.3 sh install.sh`, and change the host port with
-`FINDO_PORT` in `.env`. SMB volumes keep their DB in the `findo-data` named
-volume.
-
-The nav shows the running version and an "update available"
-badge when GitHub has a newer release; re-run the command above to update.
-
-Register the NAS by IP or a real DNS name, not a `.local` mDNS name, which
-doesn't resolve from inside a bridge-networked container.
-
-Images (amd64 + arm64) are published to `ghcr.io/timthehoff/findo` by
-`.github/workflows/release.yml` when a `vX.Y.Z` tag is pushed. After the
-first release, set the package's visibility to public in GitHub's package
-settings so installs can pull without credentials.
+See [`docs/macos-install.md`](docs/macos-install.md) for what it sets up,
+pinning a version, uninstalling, and cutting a release.
 
 ## Repo layout
 
@@ -130,4 +118,7 @@ backend/
 │   └── dashboard/        # embedded static dashboard
 └── testdata/
     └── seed/             # sample files for the dev Samba container
+deploy/
+└── macos/                # curl-able launchd install script
+docs/                     # install guide, design notes
 ```

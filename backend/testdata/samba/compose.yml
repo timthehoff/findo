@@ -1,0 +1,20 @@
+# Test fixture, not a dev stack: a throwaway Samba server seeded with
+# testdata/seed/, so Findo can be exercised end-to-end without the real NAS.
+# Findo itself always runs natively (`make run`, on :8081). Start and stop
+# this with `make samba-up` / `make samba-down` from backend/.
+#
+# Register it as a volume once the server is up. The Mac's own file sharing
+# owns port 445, so Samba is published on 1445 and the host carries the port:
+#
+#   curl -X POST localhost:8081/volumes -d '{
+#     "name": "dev samba", "host": "localhost:1445", "share": "testshare",
+#     "username": "testuser", "password": "testpass"
+#   }'
+services:
+  samba:
+    image: dperson/samba
+    command: -p -u "testuser;testpass" -s "testshare;/share;yes;no;yes;testuser"
+    ports:
+      - "1445:445"
+    volumes:
+      - ../seed:/share

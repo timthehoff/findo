@@ -16,7 +16,7 @@ import (
 	"github.com/thoff/findo/backend/internal/index"
 )
 
-// version is set at release time via -ldflags "-X main.version=...".
+// version is set by `make build` from the git tag (-ldflags "-X main.version=...").
 var version = "dev"
 
 func main() {
@@ -57,7 +57,7 @@ func main() {
 
 // startVolumeWithRetry retries a volume's initial connection so the service
 // can come up cleanly even if it starts before the NAS is reachable (e.g.
-// both started together by docker compose), without blocking the HTTP
+// launched at login before the network is up), without blocking the HTTP
 // server — or any other volume's startup — while it does.
 func startVolumeWithRetry(ctx context.Context, srv *httpapi.Server, vol index.Volume, attempts int, delay time.Duration) {
 	var err error
