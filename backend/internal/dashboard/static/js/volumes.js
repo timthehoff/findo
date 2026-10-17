@@ -25,6 +25,46 @@ const testResult = document.getElementById('testResult');
 const expandedHistory = new Set();
 const expandedInsights = new Set();
 
+// Content-extraction progress by volume id, refreshed with the volume list.
+let contentProgress = new Map();
+let contentPaused = false;
+
+const REASON_LABELS = {
+  too_large: 'too large',
+  unsupported: 'not text',
+  no_text: 'no text',
+};
+
+// contentLine summarizes one volume's content indexing: a progress bar,
+// counts, why files were skipped, and a retry button when some failed.
+function contentLine(v) {
+  if (!v.contentIndex) return '';
+  const p = contentProgress.get(String(v.id));
+  if (!p) return '<div class="volume-meta">content search: starting…</div>';
+
+  const parts = [];
+  const pct = p.eligible ? Math.round((p.done + p.skipped + p.failed) / p.eligible * 100) : 100;
+  parts.push(`${p.done.toLocaleString()} of ${p.eligible.toLocaleString()} files searchable`);
+  if (p.pending > 0) parts.push(contentPaused ? 'paused' : `indexing ${p.pending.toLocaleString()} more…`);
+  const skipped = p.reasons.filter(r => r.status === 'skipped');
+  if (p.skipped > 0) {
+    const why = skipped.map(r => `${r.count.toLocaleString()} ${REASON_LABELS[r.reason] || escapeHTML(r.reason)}`).join(', ');
+    parts.push(`${p.skipped.toLocaleString()} skipped${why ? ` (${why})` : ''}`);
+  }
+  let retry = '';
+  if (p.failed > 0) {
+    const sample = p.reasons.find(r => r.status === 'failed');
+    parts.push(`<span class="bad" title="${sample ? escapeHTML(sample.reason) : ''}">${p.failed.toLocaleString()} failed</span>`);
+    retry = `<button class="small" data-action="retry-content" data-id="${v.id}">Retry failed</button>`;
+  }
+  return `
+    <div class="volume-meta content-line">
+      <span class="content-bar" role="progressbar" aria-label="Content indexing progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><span style="width:${pct}%"></span></span>
+      <span>content search: ${parts.join(' &middot; ')}</span>
+      ${retry}
+    </div>`;
+}
+
 async function refreshStats() {
   const cards = document.getElementById('cards');
   try {
@@ -46,6 +86,18 @@ async function refreshVolumes() {
   try {
     const body = await getJSON('/volumes');
     const volumes = body.volumes || [];
+
+    // Extraction progress, only when some volume has content search on.
+    contentProgress = new Map();
+    if (volumes.some(v => v.contentIndex)) {
+      try {
+        const status = await getJSON('/content/status');
+        contentPaused = !!status.paused;
+        contentProgress = new Map((status.volumes || []).map(p => [String(p.volumeId), p]));
+      } catch {
+        // The row just omits its progress line.
+      }
+    }
 
     container.innerHTML = volumes.length === 0
       ? '<p class="muted">No volumes configured yet. A good dog needs a yard to search — add one to get started.</p>'
@@ -134,6 +186,7 @@ function renderVolumeCard(v) {
       </div>
       <div class="volume-meta">${lastCrawlLine}</div>
       ${watchLine ? `<div class="volume-meta">${watchLine}</div>` : ''}
+      ${contentLine(v)}
       ${errLine}${testErrLine}
       ${historyExpanded ? `<div class="history" id="history-${v.id}">Fetching history…</div>` : ''}
       ${insightsExpanded ? `<div class="insights" id="insights-${v.id}">Fetching insights…</div>` : ''}
@@ -226,6 +279,14 @@ async function handleVolumeAction(action, id, volumes) {
       toast('Could not start crawl: ' + e.message, 'error');
     }
     refreshVolumes();
+  } else if (action === 'retry-content') {
+    try {
+      const body = await postJSON(`/volumes/${id}/content/retry`);
+      toast(`Retrying ${body.retried} file${body.retried === 1 ? '' : 's'}.`, 'success');
+    } catch (e) {
+      toast('Could not retry: ' + e.message, 'error');
+    }
+    refreshVolumes();
   } else if (action === 'history') {
     toggleExpanded(expandedHistory, id);
     refreshVolumes();
@@ -276,6 +337,7 @@ function openVolumeDialog(v) {
   document.getElementById('vPassword').placeholder = v ? 'leave blank to keep the current password' : '';
   document.getElementById('vPassword').required = !v;
   document.getElementById('vContentIndex').checked = !!(v && v.contentIndex);
+  volumeForm.dataset.hadContent = v && v.contentIndex ? '1' : '';
   volumeDialog.showModal();
 }
 
@@ -316,6 +378,12 @@ volumeForm.addEventListener('submit', async (ev) => {
   const id = document.getElementById('volumeId').value;
   const input = currentVolumeInput();
   if (!input.password) delete input.password;
+
+  // Opting out deletes the volume's extracted text; make that deliberate.
+  if (volumeForm.dataset.hadContent && !input.contentIndex
+      && !confirm("Turn off content search for this volume? Its extracted text is removed from the index (file names stay searchable) and has to be rebuilt if you turn it back on.")) {
+    return;
+  }
 
   try {
     if (id) {

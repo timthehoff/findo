@@ -7,6 +7,7 @@ package filetype
 
 import (
 	"path"
+	"sort"
 	"strings"
 )
 
@@ -37,7 +38,13 @@ type Info struct {
 	// NAS-supplied markup on the dashboard's origin would let it script
 	// against the API.
 	Inline bool `json:"inline"`
+	// Extractor names how to pull searchable text out of the file ("" means
+	// none): see internal/extract, which owns the implementations.
+	Extractor string `json:"-"`
 }
+
+// ExtText is the extractor for plain text, markup, config and source code.
+const ExtText = "text"
 
 const (
 	textPlain = "text/plain; charset=utf-8"
@@ -55,6 +62,17 @@ func add(mime, kind string, inline bool, exts ...string) {
 			panic("filetype: duplicate extension " + ext)
 		}
 		types[ext] = Info{MIME: mime, Kind: kind, Inline: inline}
+	}
+}
+
+func setExtractor(name string, exts ...string) {
+	for _, ext := range exts {
+		info, ok := types[ext]
+		if !ok {
+			panic("filetype: extractor for unknown extension " + ext)
+		}
+		info.Extractor = name
+		types[ext] = info
 	}
 }
 
@@ -162,7 +180,7 @@ func init() {
 	add(textPlain, KindTxt, true, "txt", "md", "mdx", "rst", "adoc", "org", "log")
 	add("application/json", KindTxt, true, "json")
 	add("text/xml; charset=utf-8", KindTxt, true, "xml")
-	add(textPlain, KindTxt, true, strings.Fields(`
+	codeExts := strings.Fields(`
 		c h cc cpp cxx c++ hpp hh hxx m mm cs java kt kts scala groovy go rs zig
 		py pyw rb php pl pm lua r jl swift dart hs ml mli erl hrl ex exs clj cljs
 		lisp el vim asm s
@@ -171,7 +189,10 @@ func init() {
 		sql graphql gql proto tf hcl nix gradle mk cmake
 		yaml yml toml ini cfg conf properties env jsonc json5
 		tex bib diff patch gitignore gitattributes editorconfig
-	`)...)
+	`)
+	add(textPlain, KindTxt, true, codeExts...)
+
+	setExtractor(ExtText, append([]string{"txt", "md", "mdx", "rst", "adoc", "org", "log", "json", "xml", "csv", "tsv"}, codeExts...)...)
 
 	// Markup that can run script on this origin: known, never inline.
 	add("text/html; charset=utf-8", KindFile, false, "html", "htm")
@@ -191,6 +212,22 @@ func Lookup(name string) Info {
 		return info
 	}
 	return Info{MIME: octet, Kind: KindFile}
+}
+
+// ExtsWithExtractor returns, sorted, the extensions whose extractor is one of
+// names.
+func ExtsWithExtractor(names ...string) []string {
+	var out []string
+	for ext, info := range types {
+		for _, n := range names {
+			if info.Extractor == n {
+				out = append(out, ext)
+				break
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // All returns every known extension, for the dashboard. The map is a copy.

@@ -18,8 +18,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/hirochachacha/go-smb2"
-
 	"github.com/thoff/findo/backend/internal/dashboard"
 	"github.com/thoff/findo/backend/internal/datequery"
 	"github.com/thoff/findo/backend/internal/index"
@@ -31,7 +29,7 @@ import (
 // of a live SMB session.
 type smbClient interface {
 	Walk(root string, fn func(smbclient.Entry)) error
-	Open(path string) (*smb2.File, os.FileInfo, error)
+	Open(path string) (smbclient.File, os.FileInfo, error)
 	Ping() error
 	Stat(path string) (smbclient.Entry, bool, error)
 	Watch(ctx context.Context, filter uint32) (<-chan smbclient.ChangeEvent, <-chan error)
@@ -100,6 +98,12 @@ type Server struct {
 
 	mu      sync.Mutex
 	volumes map[int64]*volumeRuntime
+
+	// Content indexer: contentKick wakes it early; the durations are fields
+	// so tests can shorten them.
+	contentKick    chan struct{}
+	contentTimeout time.Duration
+	contentIdle    time.Duration
 }
 
 func NewServer(idx *index.Index, masterKey []byte, version string) *Server {
@@ -117,6 +121,10 @@ func NewServer(idx *index.Index, masterKey []byte, version string) *Server {
 			return smbclient.New(host, share, user, pass)
 		},
 		volumes: map[int64]*volumeRuntime{},
+
+		contentKick:    make(chan struct{}, 1),
+		contentTimeout: defaultContentTimeout,
+		contentIdle:    defaultContentIdle,
 	}
 }
 
@@ -128,6 +136,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /filetypes", s.handleFileTypes)
 	mux.HandleFunc("GET /settings", s.handleGetSettings)
 	mux.HandleFunc("PUT /settings", s.handlePutSettings)
+	mux.HandleFunc("GET /content/status", s.handleContentStatus)
+	mux.HandleFunc("POST /volumes/{id}/content/retry", s.handleContentRetry)
 	mux.HandleFunc("GET /files", s.handleList)
 	mux.HandleFunc("GET /search", s.handleSearch)
 	mux.HandleFunc("GET /files/content", s.handleContent)

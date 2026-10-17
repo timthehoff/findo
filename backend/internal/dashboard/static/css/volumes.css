@@ -40,3 +40,7 @@ dialog label.check { flex-direction: row; align-items: flex-start; gap: 0.6rem; 
 dialog label.check input { margin-top: 0.2rem; }
 dialog label.check span { display: flex; flex-direction: column; gap: 0.1rem; }
 dialog label.check small { font-size: 0.75rem; }
+
+.content-line { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.content-bar { display: inline-block; width: 90px; height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; flex: none; }
+.content-bar > span { display: block; height: 100%; background: var(--chart-hue); border-radius: 3px; }

@@ -163,7 +163,28 @@ comment for the `curl` command that registers it as a volume).
   so polling can't overwrite a field mid-edit. File-content indexing is opt-in
   per volume (`volumes.content_index`, written only through
   `Index.SetVolumeContentIndex`, so editing connection details never resets
-  it). The settings take effect once the extraction worker lands.
+  it; turning it off also deletes the volume's extracted text).
+- Content indexing is a background worker (`httpapi/contentindex.go`,
+  `Server.RunContentIndexer`, started from `main`) separate from the metadata
+  crawl. There is no queue table: the queue is a query
+  (`Index.PendingContent`) over `files LEFT JOIN content_state` for opted-in
+  volumes: files with a supported extension whose text isn't extracted yet
+  or whose size/mtime changed since (a "skipped: too_large" file retries when
+  the size limit grows; failed files wait for the file to change or
+  `POST /volumes/{id}/content/retry`). Hidden files and dot-directories are
+  not indexed. Each pass takes 50 files, re-reads the settings (so pause and
+  limit edits apply within a batch), and runs `workers` goroutines. A volume
+  that is disconnected or mid-crawl is skipped; extraction has a 60 s
+  per-file timeout (a stalled read is cut off by closing the file) and
+  `recover()`s from extractor panics. It sleeps 30 s when idle and is woken
+  by `Server.kickContent` (crawl finished, settings saved, opt-in changed,
+  retry). Text lands in `chunks` (about 1500 bytes each, `extract.Chunk`) with
+  a generated `tsvector`; both it and `content_state` cascade-delete with
+  their `files` row, so sweeps and live deletes need no extra code.
+  `extract.Extract` picks an extractor from the registry's `Extractor` field
+  (only `text` exists so far: UTF-8 text, markup and source; a NUL byte or
+  mostly invalid UTF-8 means "not text"). `GET /content/status` reports
+  per-volume progress and skip/failure reasons for the Volumes page.
 - Tests need Postgres: `make test` runs them through `scripts/with-testdb.sh`,
   which starts a throwaway cluster on a Unix socket in a temp dir and sets
   `FINDO_TEST_DSN`; each test then gets its own schema from `testdb.DSN(t)`.
