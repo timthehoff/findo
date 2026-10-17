@@ -51,7 +51,7 @@ run is recorded with why it started (`manual`/`startup`/`periodic`/
 `resync`), duration, and files/bytes seen or removed
 (`GET /volumes/{id}/crawl-runs`), and each volume's change-notify listener
 reports its own connected/last-event/resync-count state. The web UI is
-two pages — `index.html`, the landing page (live search, breadcrumb
+three pages — `index.html`, the landing page (live search, breadcrumb
 directory browsing, copy-path and download actions; dotfiles — and anything under a dot-directory — are
 hidden unless `hidden=1` ("Show hidden" toggle; filtered in SQL by
 `Index.Search`/`List` so counts and limits stay right); search text, volume
@@ -60,7 +60,8 @@ and browse path live in the URL query — `?q=&volume=<name>&path=&hidden=1` —
 duplicates renamed on migrate) — so
 back/forward, reloads and links work), and `volumes.html`
 (volume config, crawl/watch monitoring, a per-volume storage/largest-files
-breakdown) — with an icon-only light/dark/system theme toggle, a clickable
+breakdown), and `text.html` (a file's extracted text, opened from a search
+hit) — with an icon-only light/dark/system theme toggle, a clickable
 logo back to `/`, and toast notifications for action feedback. (`/search` and
 `/volumes` are JSON API routes, so those pages can't live at the bare path —
 hence `/volumes.html`; `/search.html` 301s to `/`.)
@@ -129,7 +130,7 @@ comment for the `curl` command that registers it as a volume).
   config CRUD in `volumes.go`) · `internal/testdb` (per-test Postgres schema) · `internal/httpapi`
   (routes/handlers/per-volume crawl orchestration) · `internal/dashboard`
   (embedded static multi-page site: `index.html` for search/browse,
-  `volumes.html` for volume config/monitoring, sharing `css/`/`js/` between
+  `volumes.html` for volume config/monitoring, `text.html` for extracted text, sharing `css/`/`js/` between
   them — no build step, no frontend framework, ES modules loaded directly).
 - `httpapi.Server` holds a `map[int64]*volumeRuntime` (one SMB session +
   crawling flag + watch/periodic-crawl goroutines per configured volume),
