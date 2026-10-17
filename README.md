@@ -93,14 +93,15 @@ host may carry a port (`host:port`) for servers not on the standard 445.
 
 ## Deploying (macOS)
 
-Findo runs natively as a launchd agent that starts at login. From a checkout:
+Findo runs natively as a launchd agent that starts at login. The installer
+downloads the newest prebuilt release; re-run it to update:
 
 ```sh
-deploy/macos/install.sh
+curl -fsSL https://raw.githubusercontent.com/timthehoff/findo/main/deploy/macos/install.sh | sh
 ```
 
 See [`docs/macos-install.md`](docs/macos-install.md) for what it sets up,
-updating, and uninstalling.
+pinning a version, uninstalling, and cutting a release.
 
 ## Repo layout
 
@@ -118,6 +119,6 @@ backend/
 └── testdata/
     └── seed/             # sample files for the dev Samba container
 deploy/
-└── macos/                # launchd agent template + install script
+└── macos/                # curl-able launchd install script
 docs/                     # install guide, design notes
 ```

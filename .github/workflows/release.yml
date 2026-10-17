@@ -1,0 +1,38 @@
+name: Release
+
+# Publishes prebuilt macOS binaries as a GitHub release when a version tag is
+# pushed (git tag v1.2.3 && git push --tags). deploy/macos/install.sh
+# downloads them; 0.x releases are marked pre-release.
+on:
+  push:
+    tags: ["v*.*.*"]
+
+jobs:
+  release:
+    # macOS runner so the arm64 binary is ad-hoc signed by the real toolchain.
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+      - name: Build
+        run: |
+          ver=${GITHUB_REF_NAME#v}
+          mkdir dist
+          for arch in arm64 amd64; do
+            CGO_ENABLED=0 GOOS=darwin GOARCH=$arch \
+              make -C backend build VERSION="$ver" BINARY="$PWD/dist/findo-server"
+            tar -czf "dist/findo-server_${ver}_darwin_${arch}.tar.gz" -C dist findo-server
+            rm dist/findo-server
+          done
+          (cd dist && shasum -a 256 *.tar.gz > SHA256SUMS)
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          flags=--generate-notes
+          case "${GITHUB_REF_NAME#v}" in 0.*) flags="$flags --prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" dist/* $flags

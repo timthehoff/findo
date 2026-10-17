@@ -6,14 +6,12 @@ automatic login, or adapt the plist into a LaunchDaemon with a `UserName` key.)
 
 ## Install or update
 
-Requires Go (`brew install go`) and `openssl`. From a checkout of this repo:
-
 ```sh
-deploy/macos/install.sh
+curl -fsSL https://raw.githubusercontent.com/timthehoff/findo/main/deploy/macos/install.sh | sh
 ```
 
-It builds the server with the checkout's version (the git tag if `HEAD` is a
-tagged commit, otherwise `dev`), then:
+The script downloads the newest release for your CPU (Apple silicon or Intel),
+checks it against the release's `SHA256SUMS`, and sets up:
 
 | What | Where |
 | --- | --- |
@@ -24,9 +22,13 @@ tagged commit, otherwise `dev`), then:
 
 The first run generates `.env` with a fresh `FINDO_MASTER_KEY`. **Back it up**:
 losing it means re-entering every stored SMB password. Re-running the script
-(after `git pull`) rebuilds and restarts the agent and never touches an
-existing `.env` or the database. Edit `HTTP_ADDR` in `.env` to change the port
+replaces the binary and restarts the agent, and never touches an existing
+`.env` or the database. Edit `HTTP_ADDR` in `.env` to change the port
 (default `:8080`), then re-run the script to restart.
+
+Environment overrides: `FINDO_VERSION=0.4.0` pins a release instead of the
+newest; `FINDO_BINARY=/path/to/findo-server` installs a local build (for
+example from `make build`) instead of downloading.
 
 Open `http://localhost:8080/` (or the Mac's hostname from other devices on your
 network) and add your NAS on the Volumes page. Register it by IP or a real DNS
@@ -49,9 +51,15 @@ rm ~/Library/LaunchAgents/com.findo.server.plist ~/.local/bin/findo-server
 The data directory is left in place; delete `~/Library/Application Support/Findo`
 too to discard the index and stored credentials.
 
-## Releases and the update badge
+## Cutting a release
 
-The nav shows an "update available" badge for tagged builds when GitHub has a
-newer release. Releases are no longer built by CI: tag and publish one with
-`gh release create vX.Y.Z`, then `git pull && deploy/macos/install.sh` on the
-Mac to update.
+Push a version tag:
+
+```sh
+git tag v0.4.0 && git push --tags
+```
+
+`.github/workflows/release.yml` builds `findo-server` for macOS arm64 and amd64
+(version stamped from the tag), writes `SHA256SUMS`, and publishes a GitHub
+release (marked pre-release for 0.x). The dashboard's "update available" badge
+reads these releases; the installer downloads from them.

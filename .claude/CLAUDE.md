@@ -66,17 +66,20 @@ hence `/volumes.html`; `/search.html` 301s to `/`.)
 
 ## Deployment
 
-Native macOS, no Docker. `deploy/macos/install.sh` builds from the checkout
-and installs a launchd agent (`com.findo.server`, rendered from
-`deploy/macos/com.findo.server.plist.template`): binary in `~/.local/bin`,
-`.env` + `findo.db` in `~/Library/Application Support/Findo` (the agent's
-working directory), log in `~/Library/Logs/Findo`. It generates
-`FINDO_MASTER_KEY` once and never overwrites an existing `.env`. See
-`docs/macos-install.md`. The version comes from the git tag via `make build`
-(`-X main.version`, `dev` when `HEAD` isn't tagged); CI no longer builds
-releases, so they're published by hand (`gh release create`). Register NAS
-volumes by IP or DNS name, not `.local` mDNS names. A volume's host may be
-`host:port` (the dev Samba container listens on `localhost:1445`).
+Native macOS, no Docker. `deploy/macos/install.sh` is a curl-able installer
+that downloads the newest GitHub release binary (arm64 or amd64, verified
+against `SHA256SUMS`) and installs a launchd agent (`com.findo.server`, plist
+written inline by the script): binary in `~/.local/bin`, `.env` + `findo.db`
+in `~/Library/Application Support/Findo` (the agent's working directory), log
+in `~/Library/Logs/Findo`. It generates `FINDO_MASTER_KEY` once and never
+overwrites an existing `.env`; `FINDO_VERSION` pins a release and
+`FINDO_BINARY` installs a local build. See `docs/macos-install.md`.
+`.github/workflows/release.yml` builds the macOS binaries on a `vX.Y.Z` tag
+(`make build VERSION=…`, `CGO_ENABLED=0`) and publishes the release
+(pre-release for 0.x). `make build` stamps the version from the git tag
+(`-X main.version`, `dev` when `HEAD` isn't tagged). Register NAS volumes by
+IP or DNS name, not `.local` mDNS names. A volume's host may be `host:port`
+(the dev Samba container listens on `localhost:1445`).
 `GET /version` (`httpapi/version.go`) reports the running version and, for
 release builds, whether GitHub's latest release is newer (looked up
 server-side, cached 6h, failures retried hourly); `js/version.js` shows it
