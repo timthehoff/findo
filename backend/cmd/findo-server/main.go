@@ -34,6 +34,7 @@ func main() {
 
 	srv := httpapi.NewServer(idx, cfg.MasterKey, version)
 	ctx := context.Background()
+	go srv.RunContentIndexer(ctx)
 
 	volumes, err := idx.ListVolumes()
 	if err != nil {

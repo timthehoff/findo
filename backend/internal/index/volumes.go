@@ -108,15 +108,37 @@ func (idx *Index) UpdateVolume(id int64, u VolumeUpdate) (Volume, error) {
 }
 
 // SetVolumeContentIndex turns file-content indexing on or off for a volume
-// and returns the updated volume.
+// and returns the updated volume. Turning it off also deletes the volume's
+// extracted text and extraction state: it's derived data, and keeping it
+// would leave stale text searchable.
 func (idx *Index) SetVolumeContentIndex(id int64, on bool) (Volume, error) {
-	v, err := scanVolume(idx.db.QueryRow(
+	tx, err := idx.db.Begin()
+	if err != nil {
+		return Volume{}, err
+	}
+	defer tx.Rollback()
+
+	v, err := scanVolume(tx.QueryRow(
 		`UPDATE volumes SET content_index = $1 WHERE id = $2 RETURNING `+volumeColumns, on, id,
 	))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Volume{}, fmt.Errorf("volume %d not found", id)
 	}
-	return v, err
+	if err != nil {
+		return Volume{}, err
+	}
+	if !on {
+		if _, err := tx.Exec(`DELETE FROM chunks WHERE volume_id = $1`, id); err != nil {
+			return Volume{}, err
+		}
+		if _, err := tx.Exec(`DELETE FROM content_state WHERE volume_id = $1`, id); err != nil {
+			return Volume{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return Volume{}, err
+	}
+	return v, nil
 }
 
 // DeleteVolume removes a volume along with every file and crawl run

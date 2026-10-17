@@ -6,6 +6,7 @@ package smbclient
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strings"
@@ -20,6 +21,16 @@ import (
 // own connection pool — just a bounded goroutine pool sharing the one
 // long-lived session.
 const walkConcurrency = 16
+
+// File is an open remote file: sequential and random-access reads, seekable
+// (for HTTP Range), and closable. *smb2.File satisfies it; the interface lets
+// tests serve in-memory bytes.
+type File interface {
+	io.Reader
+	io.Seeker
+	io.ReaderAt
+	io.Closer
+}
 
 // Client holds a single reused SMB session + mounted share. SMB session
 // setup is expensive, so callers should keep one Client alive for the life
@@ -318,7 +329,7 @@ func (q *dirQueue) done() {
 // Open opens a file for reading, given a share-relative slash path. The
 // returned handle implements io.ReaderAt + io.Seeker, suitable for
 // http.ServeContent.
-func (c *Client) Open(path string) (*smb2.File, os.FileInfo, error) {
+func (c *Client) Open(path string) (File, os.FileInfo, error) {
 	c.mu.Lock()
 	fs := c.fs
 	c.mu.Unlock()

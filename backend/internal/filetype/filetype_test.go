@@ -1,6 +1,7 @@
 package filetype
 
 import (
+	"sort"
 	"strings"
 	"testing"
 )
@@ -120,5 +121,33 @@ func TestAllReturnsACopy(t *testing.T) {
 	delete(all, "pdf")
 	if _, ok := ByExt("pdf"); !ok {
 		t.Fatal("mutating All()'s result changed the registry")
+	}
+}
+
+func TestExtractorAssignments(t *testing.T) {
+	exts := ExtsWithExtractor(ExtText)
+	if !sort.StringsAreSorted(exts) {
+		t.Error("ExtsWithExtractor must return sorted extensions")
+	}
+	have := map[string]bool{}
+	for _, e := range exts {
+		have[e] = true
+	}
+	for _, want := range []string{"txt", "md", "json", "csv", "go", "py", "yaml", "sh"} {
+		if !have[want] {
+			t.Errorf("%s should use the text extractor", want)
+		}
+	}
+	// Binary formats and active markup have no extractor (yet).
+	for _, not := range []string{"pdf", "docx", "jpg", "mp4", "zip", "html", "svg"} {
+		if have[not] {
+			t.Errorf("%s must not use the text extractor", not)
+		}
+	}
+	if info, _ := ByExt("go"); info.Extractor != ExtText {
+		t.Errorf("go extractor = %q", info.Extractor)
+	}
+	if len(ExtsWithExtractor("nonexistent")) != 0 {
+		t.Error("an unknown extractor name should match nothing")
 	}
 }

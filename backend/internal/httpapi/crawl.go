@@ -107,6 +107,8 @@ func (s *Server) Crawl(volumeID int64, trigger string) error {
 		log.Printf("volume %d: record crawl run finish: %v", volumeID, err)
 	}
 
+	s.kickContent() // new or changed files may be waiting for text extraction
+
 	if runErr != nil {
 		log.Printf("volume %d: crawl finished with errors: %d entries indexed, error: %v", volumeID, written, runErr)
 	} else {

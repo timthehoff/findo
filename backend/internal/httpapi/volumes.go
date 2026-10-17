@@ -132,6 +132,7 @@ func (s *Server) handleCreateVolume(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		s.kickContent()
 	}
 
 	if in.Enabled == nil || *in.Enabled {
@@ -194,6 +195,7 @@ func (s *Server) handleUpdateVolume(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		s.kickContent()
 	}
 
 	// Connection details (or enabled state) may have changed — restart the

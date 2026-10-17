@@ -48,5 +48,6 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.kickContent() // limits or pause changed: let the indexer notice now
 	writeJSON(w, http.StatusOK, settingsBody{Content: body.Content})
 }
