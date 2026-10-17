@@ -130,6 +130,7 @@ function renderVolumeCard(v) {
         \\\\${escapeHTML(v.host)}\\${escapeHTML(v.share)} as ${escapeHTML(v.username)}
         &middot; ${v.fileCount ?? 0} files, ${v.dirCount ?? 0} dirs
         ${v.enabled ? '' : ' &middot; <strong>disabled</strong>'}
+        ${v.contentIndex ? ' &middot; content search on' : ''}
       </div>
       <div class="volume-meta">${lastCrawlLine}</div>
       ${watchLine ? `<div class="volume-meta">${watchLine}</div>` : ''}
@@ -274,6 +275,7 @@ function openVolumeDialog(v) {
   document.getElementById('vUsername').value = v ? v.username : '';
   document.getElementById('vPassword').placeholder = v ? 'leave blank to keep the current password' : '';
   document.getElementById('vPassword').required = !v;
+  document.getElementById('vContentIndex').checked = !!(v && v.contentIndex);
   volumeDialog.showModal();
 }
 
@@ -284,6 +286,7 @@ function currentVolumeInput() {
     share: document.getElementById('vShare').value,
     username: document.getElementById('vUsername').value,
     password: document.getElementById('vPassword').value,
+    contentIndex: document.getElementById('vContentIndex').checked,
   };
 }
 
@@ -331,10 +334,75 @@ volumeForm.addEventListener('submit', async (ev) => {
   refreshStats();
 });
 
+// Content-indexing settings. Loaded once and not on the 5s refresh below, so
+// polling never overwrites a field being edited. The API speaks bytes; the
+// form shows MB and KB.
+const MB = 1024 * 1024;
+const KB = 1024;
+const contentForm = document.getElementById('contentForm');
+const contentState = document.getElementById('contentState');
+const pauseBtn = document.getElementById('pauseBtn');
+const contentSaveBtn = document.getElementById('contentSaveBtn');
+let contentSettings = null;
+
+const round1 = (n) => Math.round(n * 10) / 10;
+
+function renderContentSettings(cs) {
+  contentSettings = cs;
+  document.getElementById('csMaxFileMB').value = round1(cs.maxFileBytes / MB);
+  document.getElementById('csMaxTextKB').value = round1(cs.maxTextBytes / KB);
+  document.getElementById('csWorkers').value = cs.workers;
+  document.getElementById('csDelayMS').value = cs.delayMs;
+  contentState.textContent = cs.paused ? 'paused' : 'running';
+  contentState.className = 'badge ' + (cs.paused ? 'bad' : 'ok');
+  pauseBtn.textContent = cs.paused ? 'Resume' : 'Pause';
+  pauseBtn.disabled = false;
+  contentSaveBtn.disabled = false;
+}
+
+async function loadContentSettings() {
+  try {
+    const body = await getJSON('/settings');
+    renderContentSettings(body.content);
+  } catch (e) {
+    contentState.textContent = 'unavailable';
+    contentState.className = 'badge bad';
+    toast('Could not load content settings: ' + e.message, 'error');
+  }
+}
+
+async function saveContentSettings(changes, okMessage) {
+  try {
+    const body = await putJSON('/settings', { content: changes });
+    renderContentSettings(body.content);
+    toast(okMessage, 'success');
+  } catch (e) {
+    toast('Could not save: ' + e.message, 'error');
+  }
+}
+
+contentForm.addEventListener('submit', (ev) => {
+  ev.preventDefault();
+  saveContentSettings({
+    maxFileBytes: Math.round(Number(document.getElementById('csMaxFileMB').value) * MB),
+    maxTextBytes: Math.round(Number(document.getElementById('csMaxTextKB').value) * KB),
+    workers: Number(document.getElementById('csWorkers').value),
+    delayMs: Number(document.getElementById('csDelayMS').value),
+  }, 'Content indexing settings saved.');
+});
+
+pauseBtn.addEventListener('click', () => {
+  if (!contentSettings) return;
+  const pausing = !contentSettings.paused;
+  saveContentSettings({ paused: pausing }, pausing ? 'Content indexing paused.' : 'Content indexing resumed.');
+});
+
 function refresh() {
   refreshStats();
   refreshVolumes();
 }
+
+loadContentSettings();
 
 refresh();
 setInterval(refresh, 5000);

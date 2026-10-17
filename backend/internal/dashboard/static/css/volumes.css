@@ -25,3 +25,18 @@
   .volume-header { align-items: flex-start; }
   .volume-actions { margin-left: -0.3rem; }
 }
+
+.settings-card { margin: 0 0 1.5rem; padding: 0.85rem 1rem; border-radius: 10px; background: var(--tile-bg); }
+.settings-head { display: flex; align-items: center; gap: 0.6rem; }
+.settings-head h2 { font-size: 1rem; margin: 0; }
+.settings-head button { margin-left: auto; }
+.settings-help { font-size: 0.8rem; margin: 0.35rem 0 0.7rem; }
+.settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0.7rem 1rem; align-items: end; }
+.settings-grid label { font-size: 0.8rem; display: flex; flex-direction: column; gap: 0.2rem; color: var(--fg-secondary); }
+.settings-grid input { width: 100%; box-sizing: border-box; }
+.settings-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
+
+dialog label.check { flex-direction: row; align-items: flex-start; gap: 0.6rem; }
+dialog label.check input { margin-top: 0.2rem; }
+dialog label.check span { display: flex; flex-direction: column; gap: 0.1rem; }
+dialog label.check small { font-size: 0.75rem; }

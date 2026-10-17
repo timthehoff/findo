@@ -24,6 +24,9 @@ type volumeInput struct {
 	Username string `json:"username"`
 	Password string `json:"password,omitempty"`
 	Enabled  *bool  `json:"enabled,omitempty"`
+	// ContentIndex opts the volume in to (or out of) file-content indexing;
+	// omitted leaves it as it is.
+	ContentIndex *bool `json:"contentIndex,omitempty"`
 }
 
 // volumeStatus is a Volume enriched with what's only known at runtime:
@@ -124,6 +127,12 @@ func (s *Server) handleCreateVolume(w http.ResponseWriter, r *http.Request) {
 		writeVolumeWriteError(w, err)
 		return
 	}
+	if in.ContentIndex != nil && *in.ContentIndex {
+		if vol, err = s.idx.SetVolumeContentIndex(vol.ID, true); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
 
 	if in.Enabled == nil || *in.Enabled {
 		s.startVolumeAsync(vol)
@@ -179,6 +188,12 @@ func (s *Server) handleUpdateVolume(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeVolumeWriteError(w, err)
 		return
+	}
+	if in.ContentIndex != nil {
+		if vol, err = s.idx.SetVolumeContentIndex(id, *in.ContentIndex); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 	}
 
 	// Connection details (or enabled state) may have changed — restart the

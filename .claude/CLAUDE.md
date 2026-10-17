@@ -155,6 +155,15 @@ comment for the `curl` command that registers it as a volume).
   one statement can't update a row twice). File names sort with `COLLATE "C"`
   to keep byte order independent of the server's locale. Name search is
   `ILIKE '%q%'`, backed by a `pg_trgm` GIN index.
+- Runtime settings live in the DB, not env vars: a key/value `settings` table
+  (`index/settings.go`; a missing row means the default), exposed as
+  `GET/PUT /settings` (`{"content": {...}}`; PUT merges over the saved values
+  and returns 400 for out-of-range ones) and edited in the "Content indexing"
+  card on `volumes.html`, which is loaded once, not on the page's 5s refresh,
+  so polling can't overwrite a field mid-edit. File-content indexing is opt-in
+  per volume (`volumes.content_index`, written only through
+  `Index.SetVolumeContentIndex`, so editing connection details never resets
+  it). The settings take effect once the extraction worker lands.
 - Tests need Postgres: `make test` runs them through `scripts/with-testdb.sh`,
   which starts a throwaway cluster on a Unix socket in a temp dir and sets
   `FINDO_TEST_DSN`; each test then gets its own schema from `testdb.DSN(t)`.

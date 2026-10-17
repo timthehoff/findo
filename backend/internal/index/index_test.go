@@ -547,8 +547,12 @@ func TestOpenIsIdempotent(t *testing.T) {
 	if err := idx.migrate(); err != nil {
 		t.Fatalf("migrating an up-to-date schema: %v", err)
 	}
+	entries, err := migrationFS.ReadDir("migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
 	var n int
-	if err := idx.db.QueryRow(`SELECT count(*) FROM schema_migrations`).Scan(&n); err != nil || n != 1 {
-		t.Fatalf("schema_migrations rows = %d, err=%v; want 1", n, err)
+	if err := idx.db.QueryRow(`SELECT count(*) FROM schema_migrations`).Scan(&n); err != nil || n != len(entries) {
+		t.Fatalf("schema_migrations rows = %d, err=%v; want %d (one per migration file)", n, err, len(entries))
 	}
 }

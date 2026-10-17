@@ -126,6 +126,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /version", s.handleVersion)
 	mux.HandleFunc("GET /stats", s.handleStats)
 	mux.HandleFunc("GET /filetypes", s.handleFileTypes)
+	mux.HandleFunc("GET /settings", s.handleGetSettings)
+	mux.HandleFunc("PUT /settings", s.handlePutSettings)
 	mux.HandleFunc("GET /files", s.handleList)
 	mux.HandleFunc("GET /search", s.handleSearch)
 	mux.HandleFunc("GET /files/content", s.handleContent)
