@@ -56,6 +56,7 @@ func tsQuery(q string) string {
 type ContentMatch struct {
 	File
 	Snippet string
+	Chunk   int // seq of the best-matching chunk, to open the file's text at that spot
 }
 
 // SearchContent finds files whose extracted text matches q, best match first.
@@ -108,7 +109,7 @@ func (idx *Index) SearchContent(volumeID int64, q string, limit int, includeHidd
 		top AS (
 			SELECT * FROM best ORDER BY rank DESC, volume_id, path COLLATE "C" LIMIT `+limitArg+`
 		)
-		SELECT f.volume_id, f.path, f.name, f.dir, f.ext, f.is_dir, f.size, f.mod_time,
+		SELECT f.volume_id, f.path, f.name, f.dir, f.ext, f.is_dir, f.size, f.mod_time, c.seq,
 		       ts_headline('english', c.body, q.tq, `+headline+`)
 		FROM top t
 		JOIN chunks c ON c.id = t.chunk_id
@@ -123,7 +124,7 @@ func (idx *Index) SearchContent(volumeID int64, q string, limit int, includeHidd
 	var out []ContentMatch
 	for rows.Next() {
 		var m ContentMatch
-		if err := rows.Scan(&m.VolumeID, &m.Path, &m.Name, &m.Dir, &m.Ext, &m.IsDir, &m.Size, &m.ModTime, &m.Snippet); err != nil {
+		if err := rows.Scan(&m.VolumeID, &m.Path, &m.Name, &m.Dir, &m.Ext, &m.IsDir, &m.Size, &m.ModTime, &m.Chunk, &m.Snippet); err != nil {
 			return nil, err
 		}
 		out = append(out, m)

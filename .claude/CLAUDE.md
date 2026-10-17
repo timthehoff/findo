@@ -201,6 +201,16 @@ comment for the `curl` command that registers it as a volume).
   then swaps the markers for `<mark>`, so nothing from a file is ever
   inserted as HTML. `ts_headline` itself drops HTML-like tags from snippets.
   Ranking is `ts_rank_cd`, not BM25 (Postgres has none).
+- `GET /files/text?volume=&path=` serves a file's extracted text (the text
+  content search runs on) as `text/plain` with `nosniff` and a sandbox CSP,
+  or as JSON chunks with `&format=json`; 404 with a reason when there is
+  none (not extracted, too large, not text, failed). It is normalized text,
+  not a copy of the file, so it isn't for viewing source code (the original
+  is already inline); it's for formats a browser can't render. `text.html`
+  (+ `js/text.js`, `css/text.css`) is the viewer: it shows the chunks,
+  highlights the `q` words, and scrolls to `#chunk-N`. Content hits in
+  `/search` carry the best chunk's number (`chunk`), so the search page
+  links each snippet, and a "view extracted text" icon, straight there.
 - Tests need Postgres: `make test` runs them through `scripts/with-testdb.sh`,
   which starts a throwaway cluster on a Unix socket in a temp dir and sets
   `FINDO_TEST_DSN`; each test then gets its own schema from `testdb.DSN(t)`.

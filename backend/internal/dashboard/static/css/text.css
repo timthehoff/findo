@@ -1,0 +1,17 @@
+.head-actions { display: flex; gap: 0.25rem; align-items: center; }
+.where { font-size: 0.85rem; margin: -0.25rem 0 0.75rem; }
+.where .sep { opacity: 0.6; padding: 0 0.1rem; }
+.note { font-size: 0.8rem; margin: 0 0 1rem; }
+
+.text-chunks { max-width: 46rem; }
+.chunk {
+  margin: 0 0 0.9rem;
+  padding: 0.1rem 0 0.1rem 0.9rem;
+  border-left: 3px solid var(--border);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.55;
+  scroll-margin-top: 1rem;
+}
+/* The chunk a search hit came from. */
+.chunk:target { border-left-color: var(--accent); background: var(--tile-bg); border-radius: 0 6px 6px 0; }

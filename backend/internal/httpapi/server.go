@@ -140,6 +140,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /volumes/{id}/content/retry", s.handleContentRetry)
 	mux.HandleFunc("GET /files", s.handleList)
 	mux.HandleFunc("GET /search", s.handleSearch)
+	mux.HandleFunc("GET /files/text", s.handleFileText)
 	mux.HandleFunc("GET /files/content", s.handleContent)
 	// Same handler with the file's name as a cosmetic URL suffix: browsers
 	// title a tab after the URL's last segment (images, text, media), so
@@ -447,7 +448,8 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for _, h := range hits {
-			entries = append(entries, searchEntry{File: h.File, Match: "content", Snippet: h.Snippet})
+			chunk := h.Chunk
+			entries = append(entries, searchEntry{File: h.File, Match: "content", Snippet: h.Snippet, Chunk: &chunk})
 		}
 		contentMatches = len(hits)
 	}
@@ -466,6 +468,9 @@ type searchEntry struct {
 	index.File
 	Match   string `json:"match"` // "name" or "content"
 	Snippet string `json:"snippet,omitempty"`
+	// Chunk is which chunk of the file's extracted text the snippet came from
+	// (a pointer so chunk 0 isn't dropped); see /files/text.
+	Chunk *int `json:"chunk,omitempty"`
 }
 
 // parseTimeParam accepts YYYY-MM-DD (start of that day in loc) or unix seconds.
