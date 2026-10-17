@@ -29,3 +29,19 @@ func TestLandingPageIsSearchAndOldURLRedirects(t *testing.T) {
 		t.Fatalf("GET /search.html = %d -> %q, want 301 -> /", rec.Code, rec.Header().Get("Location"))
 	}
 }
+
+func TestTextViewerPageIsServed(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	for _, target := range []string{"/text.html", "/css/text.css", "/js/text.js"} {
+		rec := httptest.NewRecorder()
+		srv.Routes().ServeHTTP(rec, httptest.NewRequest("GET", target, nil))
+		if rec.Code != http.StatusOK {
+			t.Errorf("GET %s = %d", target, rec.Code)
+		}
+	}
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, httptest.NewRequest("GET", "/text.html", nil))
+	if !strings.Contains(rec.Body.String(), `id="chunks"`) {
+		t.Fatal("/text.html should be the viewer page")
+	}
+}

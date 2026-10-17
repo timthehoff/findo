@@ -51,7 +51,7 @@ run is recorded with why it started (`manual`/`startup`/`periodic`/
 `resync`), duration, and files/bytes seen or removed
 (`GET /volumes/{id}/crawl-runs`), and each volume's change-notify listener
 reports its own connected/last-event/resync-count state. The web UI is
-two pages — `index.html`, the landing page (live search, breadcrumb
+three pages — `index.html`, the landing page (live search, breadcrumb
 directory browsing, copy-path and download actions; dotfiles — and anything under a dot-directory — are
 hidden unless `hidden=1` ("Show hidden" toggle; filtered in SQL by
 `Index.Search`/`List` so counts and limits stay right); search text, volume
@@ -60,7 +60,8 @@ and browse path live in the URL query — `?q=&volume=<name>&path=&hidden=1` —
 duplicates renamed on migrate) — so
 back/forward, reloads and links work), and `volumes.html`
 (volume config, crawl/watch monitoring, a per-volume storage/largest-files
-breakdown) — with an icon-only light/dark/system theme toggle, a clickable
+breakdown), and `text.html` (a file's extracted text, opened from a search
+hit) — with an icon-only light/dark/system theme toggle, a clickable
 logo back to `/`, and toast notifications for action feedback. (`/search` and
 `/volumes` are JSON API routes, so those pages can't live at the bare path —
 hence `/volumes.html`; `/search.html` 301s to `/`.)
@@ -129,7 +130,7 @@ comment for the `curl` command that registers it as a volume).
   config CRUD in `volumes.go`) · `internal/testdb` (per-test Postgres schema) · `internal/httpapi`
   (routes/handlers/per-volume crawl orchestration) · `internal/dashboard`
   (embedded static multi-page site: `index.html` for search/browse,
-  `volumes.html` for volume config/monitoring, sharing `css/`/`js/` between
+  `volumes.html` for volume config/monitoring, `text.html` for extracted text, sharing `css/`/`js/` between
   them — no build step, no frontend framework, ES modules loaded directly).
 - `httpapi.Server` holds a `map[int64]*volumeRuntime` (one SMB session +
   crawling flag + watch/periodic-crawl goroutines per configured volume),
@@ -201,6 +202,16 @@ comment for the `curl` command that registers it as a volume).
   then swaps the markers for `<mark>`, so nothing from a file is ever
   inserted as HTML. `ts_headline` itself drops HTML-like tags from snippets.
   Ranking is `ts_rank_cd`, not BM25 (Postgres has none).
+- `GET /files/text?volume=&path=` serves a file's extracted text (the text
+  content search runs on) as `text/plain` with `nosniff` and a sandbox CSP,
+  or as JSON chunks with `&format=json`; 404 with a reason when there is
+  none (not extracted, too large, not text, failed). It is normalized text,
+  not a copy of the file, so it isn't for viewing source code (the original
+  is already inline); it's for formats a browser can't render. `text.html`
+  (+ `js/text.js`, `css/text.css`) is the viewer: it shows the chunks,
+  highlights the `q` words, and scrolls to `#chunk-N`. Content hits in
+  `/search` carry the best chunk's number (`chunk`), so the search page
+  links each snippet, and a "view extracted text" icon, straight there.
 - Tests need Postgres: `make test` runs them through `scripts/with-testdb.sh`,
   which starts a throwaway cluster on a Unix socket in a temp dir and sets
   `FINDO_TEST_DSN`; each test then gets its own schema from `testdb.DSN(t)`.
