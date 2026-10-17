@@ -14,12 +14,14 @@ import (
 // present in storage (required on create) so there's no meaningful
 // "hasPassword" state to report.
 type Volume struct {
-	ID            int64  `json:"id"`
-	Name          string `json:"name"`
-	Host          string `json:"host"`
-	Share         string `json:"share"`
-	Username      string `json:"username"`
-	Enabled       bool   `json:"enabled"`
+	ID       int64  `json:"id"`
+	Name     string `json:"name"`
+	Host     string `json:"host"`
+	Share    string `json:"share"`
+	Username string `json:"username"`
+	Enabled  bool   `json:"enabled"`
+	// ContentIndex opts the volume in to file-content indexing.
+	ContentIndex  bool   `json:"contentIndex"`
 	CreatedAt     string `json:"createdAt"`
 	UpdatedAt     string `json:"updatedAt"`
 	LastTestOK    *bool  `json:"lastTestOk,omitempty"`
@@ -48,7 +50,7 @@ type VolumeUpdate struct {
 	Enabled     bool
 }
 
-const volumeColumns = `id, name, host, share, username, enabled, created_at, updated_at, last_test_ok, last_test_at, COALESCE(last_test_error,'')`
+const volumeColumns = `id, name, host, share, username, enabled, content_index, created_at, updated_at, last_test_ok, last_test_at, COALESCE(last_test_error,'')`
 
 // CreateVolume inserts a new volume, encrypted-password included, and
 // returns it.
@@ -103,6 +105,18 @@ func (idx *Index) UpdateVolume(id int64, u VolumeUpdate) (Volume, error) {
 		return Volume{}, wrapNameConflict(err)
 	}
 	return v, nil
+}
+
+// SetVolumeContentIndex turns file-content indexing on or off for a volume
+// and returns the updated volume.
+func (idx *Index) SetVolumeContentIndex(id int64, on bool) (Volume, error) {
+	v, err := scanVolume(idx.db.QueryRow(
+		`UPDATE volumes SET content_index = $1 WHERE id = $2 RETURNING `+volumeColumns, on, id,
+	))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Volume{}, fmt.Errorf("volume %d not found", id)
+	}
+	return v, err
 }
 
 // DeleteVolume removes a volume along with every file and crawl run
@@ -189,7 +203,7 @@ func scanVolume(row rowScanner) (Volume, error) {
 	var lastTestOK sql.NullBool
 	var lastTestAt sql.NullTime
 	if err := row.Scan(
-		&v.ID, &v.Name, &v.Host, &v.Share, &v.Username, &v.Enabled,
+		&v.ID, &v.Name, &v.Host, &v.Share, &v.Username, &v.Enabled, &v.ContentIndex,
 		&created, &updated, &lastTestOK, &lastTestAt, &v.LastTestError,
 	); err != nil {
 		return Volume{}, err

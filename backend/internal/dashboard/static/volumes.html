@@ -25,6 +25,30 @@
 
   <div class="cards" id="cards">Fetching stats…</div>
 
+  <section class="settings-card" aria-labelledby="contentHeading">
+    <div class="settings-head">
+      <h2 id="contentHeading">Content indexing</h2>
+      <span id="contentState" class="badge"></span>
+      <button type="button" id="pauseBtn" disabled>Pause</button>
+    </div>
+    <p class="muted settings-help">Search inside files, not just their names, for volumes that opt in (edit a volume to turn it on). Limits keep indexing bounded and gentle on the NAS.</p>
+    <form id="contentForm" class="settings-grid">
+      <label>Largest file to read (MB)
+        <input type="number" id="csMaxFileMB" min="1" max="10240" step="any" required>
+      </label>
+      <label>Text kept per file (KB)
+        <input type="number" id="csMaxTextKB" min="1" max="32768" step="any" required>
+      </label>
+      <label>Files read at once
+        <input type="number" id="csWorkers" min="1" max="4" step="1" required>
+      </label>
+      <label>Pause between files (ms)
+        <input type="number" id="csDelayMS" min="0" max="60000" step="1" required>
+      </label>
+      <div class="settings-actions"><button type="submit" id="contentSaveBtn" disabled>Save</button></div>
+    </form>
+  </section>
+
   <div id="volumes" class="volume-list">Fetching volumes…</div>
 
   <dialog id="volumeDialog">
@@ -36,6 +60,10 @@
       <label>Share <input type="text" id="vShare" required></label>
       <label>Username <input type="text" id="vUsername" required></label>
       <label>Password <input type="password" id="vPassword" placeholder="leave blank to keep the current password" autocomplete="new-password"></label>
+      <label class="check">
+        <input type="checkbox" id="vContentIndex">
+        <span>Search file contents<small class="muted">Index the text inside this volume's documents. Off by default.</small></span>
+      </label>
       <div id="testResult"></div>
       <div class="dialog-actions">
         <button type="button" id="testBtn">Test connection</button>
