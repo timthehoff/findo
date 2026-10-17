@@ -12,7 +12,7 @@ import (
 )
 
 // crawlWriteBatch bounds how many discovered files accumulate before a
-// batch is upserted, so a crawl streams into SQLite as directories are
+// batch is upserted, so a crawl streams into Postgres as directories are
 // listed instead of buffering the whole tree in memory first.
 const crawlWriteBatch = 2000
 
@@ -33,7 +33,7 @@ const (
 
 // Crawl walks volumeID's SMB share and reconciles the index against what it
 // finds. Directory listings run concurrently (smbclient.Client.Walk) and
-// discovered files stream into SQLite via Index.StreamUpsert as they're
+// discovered files stream into Postgres via Index.StreamUpsert as they're
 // found, rather than being collected into one big slice first.
 //
 // Walk is best-effort: a directory that fails to list doesn't abort the

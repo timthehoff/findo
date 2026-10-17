@@ -41,7 +41,9 @@ Current build status and what's implemented lives in
 
 ## Backend: running it
 
-Requires Go 1.25+ (see `backend/go.mod`).
+Requires Go 1.25+ (see `backend/go.mod`) and a local Postgres:
+`brew install postgresql@17 && brew services start postgresql@17`, then create the
+dev database once with `$(brew --prefix postgresql@17)/bin/createdb findo_dev`.
 
 ```sh
 cd backend
@@ -52,7 +54,8 @@ make run
 The server reads config from environment variables, optionally via a local
 `.env` file (see `backend/internal/config/config.go`). The only required var
 is `FINDO_MASTER_KEY`, which encrypts SMB volume passwords at rest. Optional:
-`HTTP_ADDR` (default `:8080`), `DB_PATH` (default `findo.db`).
+`HTTP_ADDR` (default `:8080`) and `DATABASE_URL` (default `postgres:///findo`, the
+local server over its Unix socket; `make run` uses `postgres:///findo_dev`).
 
 SMB volumes themselves aren't configured via environment variables — add one
 at runtime through the Volumes page (`/volumes.html`) or `POST /volumes` once the server
@@ -67,7 +70,7 @@ All run from `backend/`:
 | `make build` (default) | `go build` the server binary |
 | `make check` | `gofmt -l` + `go vet` |
 | `make fix` | `gofmt -w` to auto-format |
-| `make test` | `go test -race ./...` |
+| `make test` | `go test -race ./...` against a throwaway Postgres (`scripts/with-testdb.sh`; no setup beyond the brew install above) |
 | `make run` | `go run ./cmd/findo-server` on `:8081` (override with `DEV_ADDR`) |
 | `make samba-up` / `samba-down` | start/stop the throwaway Samba test fixture (needs Docker) |
 

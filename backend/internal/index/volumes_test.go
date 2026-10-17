@@ -195,38 +195,3 @@ func TestVolumeNamesAreUniqueCaseInsensitively(t *testing.T) {
 		t.Fatalf("update keeping own name: %v", err)
 	}
 }
-
-func TestMigrateRenamesPreexistingDuplicateVolumeNames(t *testing.T) {
-	idx := openTest(t)
-	if _, err := idx.db.Exec(`DROP INDEX idx_volumes_name`); err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{"NAS", "nas", "NAS", "NAS (2)"} {
-		if _, err := idx.CreateVolume(name, "h", "s", "u", []byte("x")); err != nil {
-			t.Fatalf("CreateVolume(%q): %v", name, err)
-		}
-	}
-
-	if err := idx.migrate(); err != nil {
-		t.Fatalf("migrate over duplicates: %v", err)
-	}
-
-	vols, err := idx.ListVolumes()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got []string
-	for _, v := range vols {
-		got = append(got, v.Name)
-	}
-	// "NAS (2)" already exists, so generated names skip it.
-	want := []string{"NAS", "nas (3)", "NAS (4)", "NAS (2)"}
-	if len(got) != len(want) {
-		t.Fatalf("got %v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("got %v, want %v", got, want)
-		}
-	}
-}

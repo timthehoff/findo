@@ -2,7 +2,8 @@
 # Install or update Findo on macOS as a launchd agent that starts at login,
 # using the prebuilt binary from the newest GitHub release. Safe to re-run to
 # update: an existing .env (and its FINDO_MASTER_KEY) and the database are
-# never overwritten.
+# never overwritten. Needs Homebrew, which provides the Postgres that holds
+# Findo's index.
 #
 #   curl -fsSL https://raw.githubusercontent.com/timthehoff/findo/main/deploy/macos/install.sh | sh
 #
@@ -23,6 +24,7 @@ die() { echo "error: $*" >&2; exit 1; }
 
 [ "$(uname)" = Darwin ] || die "this installer is for macOS (launchd)"
 command -v openssl >/dev/null 2>&1 || die "openssl is required to generate FINDO_MASTER_KEY"
+command -v brew >/dev/null 2>&1 || die "Homebrew is required for Postgres (https://brew.sh)"
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -65,8 +67,25 @@ if [ ! -f "$DATA_DIR/.env" ]; then
   echo "re-entering every stored SMB password."
 fi
 
+# The index lives in a local Postgres managed by Homebrew's service (which
+# sets the LC_ALL Postgres needs under launchd). Skipped when .env points
+# DATABASE_URL somewhere else.
+if ! grep -q '^DATABASE_URL=' "$DATA_DIR/.env"; then
+  PG=postgresql@17
+  brew list --formula "$PG" >/dev/null 2>&1 || brew install "$PG"
+  brew services start "$PG" >/dev/null
+  PG_BIN=$(brew --prefix "$PG")/bin
+  for _ in $(seq 1 30); do
+    "$PG_BIN/pg_isready" -q && break
+    sleep 1
+  done
+  "$PG_BIN/pg_isready" -q || die "Postgres did not start (see: brew services info $PG)"
+  "$PG_BIN/psql" -d postgres -Atqc "SELECT 1 FROM pg_database WHERE datname = 'findo'" | grep -q 1 \
+    || "$PG_BIN/createdb" findo
+fi
+
 # launchd doesn't expand ~ or $HOME, so the real paths are written out. Findo
-# reads .env and creates findo.db relative to its working directory.
+# reads .env from its working directory.
 cat > "$PLIST" <<PLISTEOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

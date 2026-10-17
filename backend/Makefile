@@ -8,6 +8,8 @@ LDFLAGS := -X main.version=$(VERSION)
 
 # Dev port; 8080 is the production default. Env beats .env, so this wins.
 DEV_ADDR ?= :8081
+# A separate database, so `make run` never touches an installed Findo's data.
+DEV_DATABASE_URL ?= postgres:///findo_dev
 
 .PHONY: build check fix test run samba-up samba-down
 
@@ -26,11 +28,12 @@ check:
 fix:
 	gofmt -w .
 
+# Tests need Postgres; with-testdb.sh starts a throwaway one (no Docker).
 test:
-	go test -race ./...
+	scripts/with-testdb.sh go test -race ./...
 
 run:
-	HTTP_ADDR=$(DEV_ADDR) go run $(PKG)
+	HTTP_ADDR=$(DEV_ADDR) DATABASE_URL=$(DEV_DATABASE_URL) go run $(PKG)
 
 # Throwaway Samba server for trying Findo without the real NAS; see the
 # comment in testdata/samba/compose.yml for registering it as a volume.

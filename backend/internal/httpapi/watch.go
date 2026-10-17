@@ -78,7 +78,7 @@ func (s *Server) applyChangeEvent(volumeID int64, ev smbclient.ChangeEvent) {
 // only carries a name and an action, not fresh metadata.
 //
 // Live updates are stamped with runID 0, a sentinel that never collides
-// with a real crawl run (StartCrawlRun's ids are SQLite AUTOINCREMENT, so
+// with a real crawl run (StartCrawlRun's ids come from an identity column, so
 // they start at 1 and never repeat). That keeps a live-upserted row alive
 // until the next real crawl either re-confirms it — re-stamping it with
 // that crawl's own run id as it walks past the file again — or genuinely

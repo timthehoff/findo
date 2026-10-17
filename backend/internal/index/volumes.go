@@ -2,9 +2,11 @@ package index
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
-	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // Volume is a configured SMB volume, safe to hand back over the API: it
@@ -46,38 +48,30 @@ type VolumeUpdate struct {
 	Enabled     bool
 }
 
-const volumeColumns = `id, name, host, share, username, enabled, created_at, updated_at, last_test_ok, COALESCE(last_test_at,''), COALESCE(last_test_error,'')`
+const volumeColumns = `id, name, host, share, username, enabled, created_at, updated_at, last_test_ok, last_test_at, COALESCE(last_test_error,'')`
 
 // CreateVolume inserts a new volume, encrypted-password included, and
 // returns it.
 func (idx *Index) CreateVolume(name, host, share, username string, passwordEnc []byte) (Volume, error) {
-	now := time.Now().UTC().Format(time.RFC3339)
-	res, err := idx.db.Exec(
+	now := time.Now().UTC()
+	row := idx.db.QueryRow(
 		`INSERT INTO volumes (name, host, share, username, password_enc, enabled, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
-		name, host, share, username, passwordEnc, now, now,
+		 VALUES ($1, $2, $3, $4, $5, true, $6, $6)
+		 RETURNING `+volumeColumns,
+		name, host, share, username, passwordEnc, now,
 	)
+	v, err := scanVolume(row)
 	if err != nil {
 		return Volume{}, wrapNameConflict(err)
-	}
-	id, err := res.LastInsertId()
-	if err != nil {
-		return Volume{}, err
-	}
-	v, ok, err := idx.GetVolume(id)
-	if err != nil {
-		return Volume{}, err
-	}
-	if !ok {
-		return Volume{}, fmt.Errorf("volume %d not found after insert", id)
 	}
 	return v, nil
 }
 
-// wrapNameConflict maps SQLite's unique-index violation on volumes.name (the
+// wrapNameConflict maps Postgres's unique violation on volumes.name (the
 // only unique constraint besides the primary key) to ErrVolumeNameTaken.
 func wrapNameConflict(err error) error {
-	if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 		return ErrVolumeNameTaken
 	}
 	return err
@@ -85,34 +79,28 @@ func wrapNameConflict(err error) error {
 
 // UpdateVolume applies u to the volume with the given id.
 func (idx *Index) UpdateVolume(id int64, u VolumeUpdate) (Volume, error) {
-	now := time.Now().UTC().Format(time.RFC3339)
-	enabled := 0
-	if u.Enabled {
-		enabled = 1
-	}
+	now := time.Now().UTC()
 
-	var err error
+	var row *sql.Row
 	if u.PasswordEnc != nil {
-		_, err = idx.db.Exec(
-			`UPDATE volumes SET name=?, host=?, share=?, username=?, password_enc=?, enabled=?, updated_at=? WHERE id=?`,
-			u.Name, u.Host, u.Share, u.Username, u.PasswordEnc, enabled, now, id,
+		row = idx.db.QueryRow(
+			`UPDATE volumes SET name=$1, host=$2, share=$3, username=$4, password_enc=$5, enabled=$6, updated_at=$7
+			 WHERE id=$8 RETURNING `+volumeColumns,
+			u.Name, u.Host, u.Share, u.Username, u.PasswordEnc, u.Enabled, now, id,
 		)
 	} else {
-		_, err = idx.db.Exec(
-			`UPDATE volumes SET name=?, host=?, share=?, username=?, enabled=?, updated_at=? WHERE id=?`,
-			u.Name, u.Host, u.Share, u.Username, enabled, now, id,
+		row = idx.db.QueryRow(
+			`UPDATE volumes SET name=$1, host=$2, share=$3, username=$4, enabled=$5, updated_at=$6
+			 WHERE id=$7 RETURNING `+volumeColumns,
+			u.Name, u.Host, u.Share, u.Username, u.Enabled, now, id,
 		)
+	}
+	v, err := scanVolume(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Volume{}, fmt.Errorf("volume %d not found", id)
 	}
 	if err != nil {
 		return Volume{}, wrapNameConflict(err)
-	}
-
-	v, ok, err := idx.GetVolume(id)
-	if err != nil {
-		return Volume{}, err
-	}
-	if !ok {
-		return Volume{}, fmt.Errorf("volume %d not found", id)
 	}
 	return v, nil
 }
@@ -126,13 +114,13 @@ func (idx *Index) DeleteVolume(id int64) error {
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.Exec(`DELETE FROM files WHERE volume_id = ?`, id); err != nil {
+	if _, err := tx.Exec(`DELETE FROM files WHERE volume_id = $1`, id); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`DELETE FROM crawl_runs WHERE volume_id = ?`, id); err != nil {
+	if _, err := tx.Exec(`DELETE FROM crawl_runs WHERE volume_id = $1`, id); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`DELETE FROM volumes WHERE id = ?`, id); err != nil {
+	if _, err := tx.Exec(`DELETE FROM volumes WHERE id = $1`, id); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -140,7 +128,7 @@ func (idx *Index) DeleteVolume(id int64) error {
 
 // GetVolume returns a single volume by id.
 func (idx *Index) GetVolume(id int64) (Volume, bool, error) {
-	row := idx.db.QueryRow(`SELECT `+volumeColumns+` FROM volumes WHERE id = ?`, id)
+	row := idx.db.QueryRow(`SELECT `+volumeColumns+` FROM volumes WHERE id = $1`, id)
 	v, err := scanVolume(row)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -174,7 +162,7 @@ func (idx *Index) ListVolumes() ([]Volume, error) {
 // session for id, password still encrypted.
 func (idx *Index) GetVolumeSecret(id int64) (VolumeSecret, error) {
 	var s VolumeSecret
-	row := idx.db.QueryRow(`SELECT host, share, username, password_enc FROM volumes WHERE id = ?`, id)
+	row := idx.db.QueryRow(`SELECT host, share, username, password_enc FROM volumes WHERE id = $1`, id)
 	if err := row.Scan(&s.Host, &s.Share, &s.Username, &s.PasswordEnc); err != nil {
 		return VolumeSecret{}, err
 	}
@@ -184,13 +172,9 @@ func (idx *Index) GetVolumeSecret(id int64) (VolumeSecret, error) {
 // SetVolumeTestResult records the outcome of a connection test, whether
 // triggered explicitly or as a side effect of trying to (re)connect.
 func (idx *Index) SetVolumeTestResult(id int64, ok bool, errMsg string) error {
-	okInt := 0
-	if ok {
-		okInt = 1
-	}
 	_, err := idx.db.Exec(
-		`UPDATE volumes SET last_test_ok=?, last_test_at=?, last_test_error=? WHERE id=?`,
-		okInt, time.Now().UTC().Format(time.RFC3339), nullIfEmpty(errMsg), id,
+		`UPDATE volumes SET last_test_ok=$1, last_test_at=$2, last_test_error=$3 WHERE id=$4`,
+		ok, time.Now().UTC(), nullIfEmpty(errMsg), id,
 	)
 	return err
 }
@@ -201,18 +185,23 @@ type rowScanner interface {
 
 func scanVolume(row rowScanner) (Volume, error) {
 	var v Volume
-	var enabled int
-	var lastTestOK sql.NullInt64
+	var created, updated time.Time
+	var lastTestOK sql.NullBool
+	var lastTestAt sql.NullTime
 	if err := row.Scan(
-		&v.ID, &v.Name, &v.Host, &v.Share, &v.Username, &enabled,
-		&v.CreatedAt, &v.UpdatedAt, &lastTestOK, &v.LastTestAt, &v.LastTestError,
+		&v.ID, &v.Name, &v.Host, &v.Share, &v.Username, &v.Enabled,
+		&created, &updated, &lastTestOK, &lastTestAt, &v.LastTestError,
 	); err != nil {
 		return Volume{}, err
 	}
-	v.Enabled = enabled == 1
+	v.CreatedAt = formatTime(created)
+	v.UpdatedAt = formatTime(updated)
 	if lastTestOK.Valid {
-		ok := lastTestOK.Int64 != 0
+		ok := lastTestOK.Bool
 		v.LastTestOK = &ok
+	}
+	if lastTestAt.Valid {
+		v.LastTestAt = formatTime(lastTestAt.Time)
 	}
 	return v, nil
 }
