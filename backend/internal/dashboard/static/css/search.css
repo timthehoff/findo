@@ -6,6 +6,7 @@
   --type-ppt-bg: #ffe4ec;  --type-ppt-fg: #8f0b4a;
   --type-img-bg: #f0e3ff;  --type-img-fg: #520b8f;
   --type-vid-bg: #ffe9d6;  --type-vid-fg: #8f5c0b;
+  --type-aud-bg: #d6f3f2;  --type-aud-fg: #0b6b6b;
   --type-zip-bg: #eeeeee;  --type-zip-fg: #444444;
   --type-txt-bg: #eeeef8;  --type-txt-fg: #333366;
   --type-file-bg: #eeeeee; --type-file-fg: #555555;
@@ -19,6 +20,7 @@
     --type-ppt-bg: #4f1330;  --type-ppt-fg: #ff9dc4;
     --type-img-bg: #33134f;  --type-img-fg: #d3aaff;
     --type-vid-bg: #4f3313;  --type-vid-fg: #ffcb9c;
+    --type-aud-bg: #123f40;  --type-aud-fg: #8fe0dc;
     --type-zip-bg: #333333;  --type-zip-fg: #cccccc;
     --type-txt-bg: #23233d;  --type-txt-fg: #b3b3e0;
     --type-file-bg: #333333; --type-file-fg: #cccccc;
@@ -32,6 +34,7 @@
   --type-ppt-bg: #4f1330;  --type-ppt-fg: #ff9dc4;
   --type-img-bg: #33134f;  --type-img-fg: #d3aaff;
   --type-vid-bg: #4f3313;  --type-vid-fg: #ffcb9c;
+  --type-aud-bg: #123f40;  --type-aud-fg: #8fe0dc;
   --type-zip-bg: #333333;  --type-zip-fg: #cccccc;
   --type-txt-bg: #23233d;  --type-txt-fg: #b3b3e0;
   --type-file-bg: #333333; --type-file-fg: #cccccc;
@@ -53,6 +56,7 @@ mark { background: var(--mark-bg); color: inherit; padding: 0 1px; border-radius
 .type-tile.type-ppt  { background: var(--type-ppt-bg);  color: var(--type-ppt-fg); }
 .type-tile.type-img  { background: var(--type-img-bg);  color: var(--type-img-fg); }
 .type-tile.type-vid  { background: var(--type-vid-bg);  color: var(--type-vid-fg); }
+.type-tile.type-aud  { background: var(--type-aud-bg);  color: var(--type-aud-fg); }
 .type-tile.type-zip  { background: var(--type-zip-bg);  color: var(--type-zip-fg); }
 .type-tile.type-txt  { background: var(--type-txt-bg);  color: var(--type-txt-fg); }
 .type-tile.type-file { background: var(--type-file-bg); color: var(--type-file-fg); }
@@ -79,6 +83,8 @@ mark { background: var(--mark-bg); color: inherit; padding: 0 1px; border-radius
   overflow: hidden;
 }
 .type-tile.long { font-size: 0.5rem; letter-spacing: 0; }
+a.type-tile { text-decoration: none; cursor: pointer; }
+a.type-tile:hover { filter: brightness(0.94); }
 .result-main { grid-area: main; display: flex; flex-direction: column; min-width: 0; }
 .result-name { color: var(--fg); font-weight: 600; text-decoration: none; overflow-wrap: anywhere; }
 .result-name:hover { text-decoration: underline; }

@@ -28,7 +28,8 @@ natively on macOS), in `backend/`:
 - Browser-renderable types (PDF, images, text, audio, video) are served
   `Content-Disposition: inline`; everything else, and anything with
   `?download=1`, is an attachment. HTML/SVG are never inline (XSS risk on the
-  UI's origin). See `internal/httpapi/content.go`.
+  UI's origin). The extension → MIME/kind/inline table lives in
+  `internal/filetype`; see `internal/httpapi/content.go` for the headers.
 - To edit, each search result has a "Copy path" button (copies
   `smb://host/share/path`) and shows its share-relative location. The user
   connects once via Files/Finder > Connect to Server and edits in place there.
@@ -115,7 +116,11 @@ comment for the `curl` command that registers it as a volume).
   reports the detected range as `modified`. A bounded range sorts newest-first.
 - Layout: `cmd/findo-server` (entrypoint) · `internal/config` (env/.env
   loading; just `FINDO_MASTER_KEY`/`HTTP_ADDR`/`DATABASE_URL` — no SMB connection
-  details) · `internal/crypto` (AES-256-GCM encrypt/decrypt for volume
+  details) · `internal/filetype` (the one extension registry: Content-Type,
+  inline-or-download, and tile `kind`; served to the dashboard at
+  `GET /filetypes` so `js/search.js` colors tiles from it instead of keeping
+  its own list; a new kind needs `--type-<kind>-*` colors in `css/search.css`) ·
+  `internal/crypto` (AES-256-GCM encrypt/decrypt for volume
   passwords at rest) · `internal/smbclient` (SMB2 session via `go-smb2`,
   wraps one long-lived session per volume — don't reconnect per request) ·
   `internal/index` (Postgres-backed metadata store via `pgx` through
