@@ -199,15 +199,54 @@ function showMessage(html) {
   resultsEl.innerHTML = `<li class="empty-state muted">${html}</li>`;
 }
 
-function renderCount(n, query, dateLabel) {
+// Content-extraction progress, cached briefly so typing doesn't hammer the
+// server. Used only for the "still indexing" note on search results.
+let contentStatus = { at: 0, paused: false, volumes: [] };
+let lastCount = null; // arguments of the last renderCount, to redraw the note
+
+async function refreshContentStatus() {
+  if (Date.now() - contentStatus.at < 15000) return;
+  contentStatus.at = Date.now(); // set first: one request in flight at a time
+  try {
+    const body = await getJSON('/content/status');
+    contentStatus = { at: Date.now(), paused: !!body.paused, volumes: body.volumes || [] };
+    if (lastCount) renderCount(...lastCount);
+  } catch {
+    // The note is optional.
+  }
+}
+
+// indexNote warns that content results may be incomplete while extraction is
+// still working through the selected volume(s).
+function indexNote() {
+  const vols = contentStatus.volumes.filter(v => !volumeSelect.value || String(v.volumeId) === volumeSelect.value);
+  const eligible = vols.reduce((n, v) => n + v.eligible, 0);
+  const pending = vols.reduce((n, v) => n + v.pending, 0);
+  if (pending === 0) return '';
+  if (contentStatus.paused) return ' · content indexing is paused, so file contents may be missing';
+  const pct = eligible ? Math.round((eligible - pending) / eligible * 100) : 0;
+  return ` · still indexing file contents (${pct}%), so results may be incomplete`;
+}
+
+function renderCount(n, query, dateLabel, contentN = 0) {
+  lastCount = [n, query, dateLabel, contentN];
   if (query) {
     countEl.textContent = n >= SEARCH_LIMIT
       ? `Showing the first ${SEARCH_LIMIT} results — narrow your search to see more`
       : `${n} ${n === 1 ? 'result' : 'results'}`;
+    if (contentN) countEl.textContent += ` (${contentN} from file contents)`;
     if (dateLabel) countEl.textContent += ` · modified ${dateLabel}, newest first`;
+    countEl.textContent += indexNote();
   } else {
     countEl.textContent = `${n} ${n === 1 ? 'item' : 'items'}`;
   }
+}
+
+// snippetHTML makes a server snippet safe to show: escape everything first,
+// then turn the server's highlight markers into <mark>.
+function snippetHTML(snippet) {
+  return '…' + escapeHTML(snippet.replace(/\s+/g, ' ').trim())
+    .replace(/\x02/g, '<mark>').replace(/\x03/g, '</mark>') + '…';
 }
 
 // `query` is what the user typed; `nameQuery` is the part left after a date
@@ -219,7 +258,8 @@ function renderResults(entries, query, nameQuery = query, dateLabel = '') {
       : 'Nothing in this folder.');
     return;
   }
-  renderCount(entries.length, query, dateLabel);
+  renderCount(entries.length, query, dateLabel, entries.filter(f => f.match === 'content').length);
+  if (query) refreshContentStatus();
 
   // `query` is empty when browsing a folder, where every row already lives
   // in the current location, so the "show in folder" button is omitted.
@@ -238,7 +278,11 @@ function renderResults(entries, query, nameQuery = query, dateLabel = '') {
     const target = f.isDir
       ? `href="#" data-dir="${escapeHTML(f.path)}" data-vol="${f.volumeId}"`
       : `href="${contentURL}" target="_blank" rel="noopener"`;
-    const name = `<a class="result-name" ${target}>${nameHTML}</a>`;
+    const fromContent = f.match === 'content';
+    // One wrapper, so the tag sits beside the name instead of becoming its own
+    // row in the flex column.
+    const name = `<span class="result-title"><a class="result-name" ${target}>${nameHTML}</a>`
+      + (fromContent ? ' <span class="match-tag">in contents</span>' : '') + '</span>';
     const tile = `<a class="type-tile type-${badge.cls}${badge.label.length > 4 ? ' long' : ''}" ${target} tabindex="-1" aria-hidden="true" title="${badge.label}">${f.isDir ? ICON_FOLDER : badge.label}</a>`;
     const where = [`<span class="vol">${escapeHTML(volName)}</span>`, ...(parent ? parent.split('/') : []).map(escapeHTML)]
       .join(' <span class="sep">›</span> ');
@@ -253,6 +297,7 @@ function renderResults(entries, query, nameQuery = query, dateLabel = '') {
         <div class="result-main">
           ${name}
           <span class="result-where" title="${escapeHTML(sharePath)}">${where}</span>
+          ${fromContent && f.snippet ? `<span class="result-snippet">${snippetHTML(f.snippet)}</span>` : ''}
         </div>
         <div class="result-meta" title="${escapeHTML(date.toLocaleString())}">${meta}</div>
         <div class="result-actions">
