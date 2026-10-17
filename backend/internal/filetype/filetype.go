@@ -83,9 +83,25 @@ func init() {
 		{"m4v", "video/mp4", KindVid, true},
 		{"webm", "video/webm", KindVid, true},
 
+		// Audio: inline only for what Safari and Chromium both play; the rest
+		// (and MIDI, which no browser synthesizes) download.
 		{"mp3", "audio/mpeg", KindAud, true},
 		{"m4a", "audio/mp4", KindAud, true},
+		{"aac", "audio/aac", KindAud, true},
 		{"wav", "audio/wav", KindAud, true},
+		{"flac", "audio/flac", KindAud, true},
+		{"m4b", "audio/mp4", KindAud, false},
+		{"ogg", "audio/ogg", KindAud, false},
+		{"oga", "audio/ogg", KindAud, false},
+		{"opus", "audio/ogg", KindAud, false},
+		{"aiff", "audio/aiff", KindAud, false},
+		{"aif", "audio/aiff", KindAud, false},
+		{"caf", "audio/x-caf", KindAud, false},
+		{"wma", "audio/x-ms-wma", KindAud, false},
+		{"amr", "audio/amr", KindAud, false},
+		{"mid", "audio/midi", KindAud, false},
+		{"midi", "audio/midi", KindAud, false},
+		{"kar", "audio/midi", KindAud, false},
 
 		{"zip", "application/zip", KindZip, false},
 		{"tar", "application/x-tar", KindZip, false},
