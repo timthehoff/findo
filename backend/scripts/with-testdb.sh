@@ -5,7 +5,8 @@
 #
 #   scripts/with-testdb.sh go test ./...
 #
-# Needs Postgres with pg_trgm installed: brew install postgresql@17
+# Needs Postgres with pg_trgm: brew install postgresql@17 (macOS), or the
+# postgresql package (Linux, including GitHub's runners).
 set -eu
 
 if [ -n "${FINDO_TEST_DSN:-}" ]; then
@@ -19,6 +20,9 @@ find_bin() {
       p=$(brew --prefix "postgresql@$v" 2>/dev/null || true)
       [ -x "$p/bin/$1" ] && { echo "$p/bin/$1"; return; }
     fi
+  done
+  for p in /usr/lib/postgresql/*/bin/"$1"; do
+    [ -x "$p" ] && { echo "$p"; return; }
   done
   echo "error: $1 not found; install Postgres (brew install postgresql@17)" >&2
   exit 1
@@ -35,7 +39,11 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # Postgres aborts at startup on macOS without a valid locale in the env.
-export LC_ALL=en_US.UTF-8
+if locale -a 2>/dev/null | grep -qi '^en_US\.utf-\?8$'; then
+  export LC_ALL=en_US.UTF-8
+else
+  export LC_ALL=C.UTF-8
+fi
 "$INITDB" -D "$dir/data" -E UTF8 -A trust >/dev/null
 "$PG_CTL" -D "$dir/data" -l "$dir/log" -w \
   -o "-c listen_addresses='' -k $dir -c fsync=off -c synchronous_commit=off -c full_page_writes=off" \
