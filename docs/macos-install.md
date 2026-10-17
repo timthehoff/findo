@@ -53,13 +53,9 @@ too to discard the index and stored credentials.
 
 ## Cutting a release
 
-Push a version tag:
-
-```sh
-git tag v0.4.0 && git push --tags
-```
-
-`.github/workflows/release.yml` builds `findo-server` for macOS arm64 and amd64
-(version stamped from the tag), writes `SHA256SUMS`, and publishes a GitHub
-release (marked pre-release for 0.x). The dashboard's "update available" badge
-reads these releases; the installer downloads from them.
+Push a version tag (`git tag v0.4.0 && git push --tags`) or publish a release
+for a new tag in GitHub's UI. Either way `.github/workflows/release.yml` builds `findo-server` for macOS
+arm64 and amd64 (version stamped from the tag), writes `SHA256SUMS`, and
+attaches them to the GitHub release, creating it first if the tag came from
+`git push` (marked pre-release for 0.x). The dashboard's "update available"
+badge reads these releases; the installer downloads from them.

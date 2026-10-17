@@ -1,8 +1,8 @@
 name: Release
 
-# Publishes prebuilt macOS binaries as a GitHub release when a version tag is
-# pushed (git tag v1.2.3 && git push --tags). deploy/macos/install.sh
-# downloads them; 0.x releases are marked pre-release.
+# Publishes prebuilt macOS binaries to a GitHub release when a version tag is
+# pushed (git tag v1.2.3 && git push --tags, or a release published in GitHub's
+# UI). deploy/macos/install.sh downloads them; 0.x releases are pre-releases.
 on:
   push:
     tags: ["v*.*.*"]
@@ -33,6 +33,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          flags=--generate-notes
-          case "${GITHUB_REF_NAME#v}" in 0.*) flags="$flags --prerelease" ;; esac
-          gh release create "$GITHUB_REF_NAME" dist/* $flags
+          # A release published from GitHub's UI already exists by the time the
+          # tag triggers this workflow; a bare `git push --tags` has none yet.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            flags=--generate-notes
+            case "${GITHUB_REF_NAME#v}" in 0.*) flags="$flags --prerelease" ;; esac
+            gh release create "$GITHUB_REF_NAME" dist/* $flags
+          fi
