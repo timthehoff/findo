@@ -1,7 +1,9 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -55,5 +57,30 @@ func TestSetContentHeadersEncodesFilename(t *testing.T) {
 	disp := h.Get("Content-Disposition")
 	if strings.Contains(disp, "\"Q3\"\"") || !strings.Contains(disp, "filename") {
 		t.Errorf("filename not safely encoded: %q", disp)
+	}
+}
+
+func TestFileTypesEndpoint(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, httptest.NewRequest("GET", "/filetypes", nil))
+	if rec.Code != 200 {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	var body struct {
+		Types map[string]struct {
+			Kind   string `json:"kind"`
+			MIME   string `json:"mime"`
+			Inline bool   `json:"inline"`
+		} `json:"types"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if pdf := body.Types["pdf"]; pdf.Kind != "pdf" || pdf.MIME != "application/pdf" || !pdf.Inline {
+		t.Errorf("pdf = %+v", pdf)
+	}
+	if svg := body.Types["svg"]; svg.Inline {
+		t.Errorf("svg must not be inline: %+v", svg)
 	}
 }

@@ -77,23 +77,25 @@ async function restoreFromURL() {
   }
 }
 
+// File kinds (and so tile colors) come from the server's registry
+// (/filetypes), the same table that decides how a file is served.
+let fileKinds = {};
+
+async function loadFileTypes() {
+  try {
+    const body = await getJSON('/filetypes');
+    fileKinds = Object.fromEntries(Object.entries(body.types || {}).map(([ext, t]) => [ext, t.kind]));
+  } catch {
+    // Tiles fall back to the plain "file" color; nothing else depends on this.
+  }
+}
+
 // fileTypeBadge maps an extension to a short label/color class so results
 // are scannable at a glance without a full icon set.
-const EXT_CLASSES = {
-  pdf: 'pdf',
-  doc: 'doc', docx: 'doc', pages: 'doc', rtf: 'doc',
-  xls: 'xls', xlsx: 'xls', csv: 'xls', numbers: 'xls',
-  ppt: 'ppt', pptx: 'ppt', key: 'ppt',
-  jpg: 'img', jpeg: 'img', png: 'img', gif: 'img', heic: 'img', webp: 'img',
-  mp4: 'vid', mov: 'vid', avi: 'vid', mkv: 'vid',
-  zip: 'zip', tar: 'zip', gz: 'zip', '7z': 'zip',
-  txt: 'txt', md: 'txt',
-};
-
 function fileTypeBadge(ext, isDir) {
   if (isDir) return { label: 'DIR', cls: 'dir' };
   const e = (ext || '').toLowerCase();
-  return { label: e ? e.toUpperCase() : 'FILE', cls: EXT_CLASSES[e] || 'file' };
+  return { label: e ? e.toUpperCase() : 'FILE', cls: fileKinds[e] || 'file' };
 }
 
 // highlight wraps the first case-insensitive match of query in name with
@@ -230,9 +232,14 @@ function renderResults(entries, query, nameQuery = query, dateLabel = '') {
     const sharePath = vol ? `${vol.share}/${f.path}` : f.path;
     const parent = f.path.includes('/') ? f.path.slice(0, f.path.lastIndexOf('/')) : '';
     const nameHTML = highlight(f.name, nameQuery);
-    const name = f.isDir
-      ? `<a class="result-name" href="#" data-dir="${escapeHTML(f.path)}" data-vol="${f.volumeId}">${nameHTML}</a>`
-      : `<a class="result-name" href="${contentURL}" target="_blank" rel="noopener">${nameHTML}</a>`;
+    // The type tile links exactly where the name does, so either one opens the
+    // file or folder. It's a mouse/touch target only (the name is the real
+    // link for keyboards and screen readers), hence tabindex -1 and aria-hidden.
+    const target = f.isDir
+      ? `href="#" data-dir="${escapeHTML(f.path)}" data-vol="${f.volumeId}"`
+      : `href="${contentURL}" target="_blank" rel="noopener"`;
+    const name = `<a class="result-name" ${target}>${nameHTML}</a>`;
+    const tile = `<a class="type-tile type-${badge.cls}${badge.label.length > 4 ? ' long' : ''}" ${target} tabindex="-1" aria-hidden="true" title="${badge.label}">${f.isDir ? ICON_FOLDER : badge.label}</a>`;
     const where = [`<span class="vol">${escapeHTML(volName)}</span>`, ...(parent ? parent.split('/') : []).map(escapeHTML)]
       .join(' <span class="sep">›</span> ');
     const date = new Date(f.modTime * 1000);
@@ -242,7 +249,7 @@ function renderResults(entries, query, nameQuery = query, dateLabel = '') {
     ].filter(Boolean).map(part => `<span>${part}</span>`).join(' · ');
     return `
       <li class="result">
-        <span class="type-tile type-${badge.cls}${badge.label.length > 4 ? ' long' : ''}" title="${badge.label}">${f.isDir ? ICON_FOLDER : badge.label}</span>
+        ${tile}
         <div class="result-main">
           ${name}
           <span class="result-where" title="${escapeHTML(sharePath)}">${where}</span>
@@ -364,6 +371,6 @@ showHiddenEl.addEventListener('change', () => {
 window.addEventListener('popstate', restoreFromURL);
 
 (async function init() {
-  await loadVolumes();
+  await Promise.all([loadVolumes(), loadFileTypes()]);
   await restoreFromURL();
 })();
