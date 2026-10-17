@@ -97,6 +97,14 @@ func init() {
 		{"aiff", "audio/aiff", KindAud, false},
 		{"aif", "audio/aiff", KindAud, false},
 		{"caf", "audio/x-caf", KindAud, false},
+		{"aifc", "audio/aiff", KindAud, false},
+		{"m4p", "audio/mp4", KindAud, false}, // DRM-protected AAC; won't play outside Apple's apps
+		{"m4r", "audio/mp4", KindAud, false}, // iPhone ringtone
+		{"adts", "audio/aac", KindAud, false},
+		{"au", "audio/basic", KindAud, false},
+		{"snd", "audio/basic", KindAud, false},
+		{"ac3", "audio/ac3", KindAud, false},
+		{"ec3", "audio/eac3", KindAud, false},
 		{"wma", "audio/x-ms-wma", KindAud, false},
 		{"amr", "audio/amr", KindAud, false},
 		{"mid", "audio/midi", KindAud, false},
