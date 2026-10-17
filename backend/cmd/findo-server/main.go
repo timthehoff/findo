@@ -1,5 +1,5 @@
 // Command findo-server crawls one or more NAS SMB shares into a local
-// SQLite index and serves it over HTTP: volume configuration, directory
+// Postgres index and serves it over HTTP: volume configuration, directory
 // listing, search, Range-aware file streaming, health/stats, manual crawl
 // triggers, and a small dashboard.
 package main
@@ -26,9 +26,9 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 
-	idx, err := index.Open(cfg.DBPath)
+	idx, err := index.Open(cfg.DatabaseURL)
 	if err != nil {
-		log.Fatalf("open index db: %v", err)
+		log.Fatalf("open index db (is Postgres running? see DATABASE_URL): %v", err)
 	}
 	defer idx.Close()
 

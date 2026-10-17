@@ -3,8 +3,8 @@ package httpapi
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/thoff/findo/backend/internal/testdb"
 	"net/http/httptest"
-	"path/filepath"
 	"strconv"
 	"testing"
 
@@ -19,7 +19,7 @@ import (
 // real StartVolume path end to end.
 func newTestServerNoVolumes(t *testing.T, smb *fakeSMB) *Server {
 	t.Helper()
-	idx, err := index.Open(filepath.Join(t.TempDir(), "test.db"))
+	idx, err := index.Open(testdb.DSN(t))
 	if err != nil {
 		t.Fatalf("index.Open: %v", err)
 	}

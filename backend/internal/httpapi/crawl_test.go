@@ -2,7 +2,7 @@ package httpapi
 
 import (
 	"context"
-	"path/filepath"
+	"github.com/thoff/findo/backend/internal/testdb"
 	"testing"
 
 	"github.com/thoff/findo/backend/internal/crypto"
@@ -17,7 +17,7 @@ import (
 // normally kick off.
 func newTestServer(t *testing.T) (*Server, *fakeSMB, int64) {
 	t.Helper()
-	idx, err := index.Open(filepath.Join(t.TempDir(), "test.db"))
+	idx, err := index.Open(testdb.DSN(t))
 	if err != nil {
 		t.Fatalf("index.Open: %v", err)
 	}

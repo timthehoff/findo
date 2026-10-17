@@ -1,0 +1,49 @@
+#!/bin/sh
+# Run a command with FINDO_TEST_DSN pointing at a throwaway Postgres, started
+# in a temp dir on a Unix socket and removed afterwards (no Docker, no
+# network port). Uses FINDO_TEST_DSN as-is if it's already set.
+#
+#   scripts/with-testdb.sh go test ./...
+#
+# Needs Postgres with pg_trgm installed: brew install postgresql@17
+set -eu
+
+if [ -n "${FINDO_TEST_DSN:-}" ]; then
+  exec "$@"
+fi
+
+find_bin() {
+  if command -v "$1" >/dev/null 2>&1; then command -v "$1"; return; fi
+  for v in 17 18 16; do
+    if command -v brew >/dev/null 2>&1; then
+      p=$(brew --prefix "postgresql@$v" 2>/dev/null || true)
+      [ -x "$p/bin/$1" ] && { echo "$p/bin/$1"; return; }
+    fi
+  done
+  echo "error: $1 not found; install Postgres (brew install postgresql@17)" >&2
+  exit 1
+}
+INITDB=$(find_bin initdb)
+PG_CTL=$(find_bin pg_ctl)
+
+# Unix socket paths are limited to ~100 bytes on macOS, so keep this short.
+dir=$(mktemp -d /tmp/findo-pg.XXXXXX)
+cleanup() {
+  "$PG_CTL" -D "$dir/data" -m immediate stop >/dev/null 2>&1 || true
+  rm -rf "$dir"
+}
+trap cleanup EXIT INT TERM
+
+# Postgres aborts at startup on macOS without a valid locale in the env.
+export LC_ALL=en_US.UTF-8
+"$INITDB" -D "$dir/data" -E UTF8 -A trust >/dev/null
+"$PG_CTL" -D "$dir/data" -l "$dir/log" -w \
+  -o "-c listen_addresses='' -k $dir -c fsync=off -c synchronous_commit=off -c full_page_writes=off" \
+  start >/dev/null || { cat "$dir/log" >&2; exit 1; }
+
+PSQL=$(dirname "$PG_CTL")/psql
+"$PSQL" -h "$dir" -d postgres -qc "CREATE DATABASE findo_test"
+"$PSQL" -h "$dir" -d findo_test -qc "CREATE EXTENSION pg_trgm"
+
+export FINDO_TEST_DSN="host=$dir dbname=findo_test"
+"$@"

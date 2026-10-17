@@ -2,7 +2,7 @@ package index
 
 import (
 	"fmt"
-	"path/filepath"
+	"github.com/thoff/findo/backend/internal/testdb"
 	"strings"
 	"testing"
 )
@@ -14,7 +14,7 @@ const testVolume = int64(1)
 
 func openTest(t *testing.T) *Index {
 	t.Helper()
-	idx, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	idx, err := Open(testdb.DSN(t))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -499,4 +499,56 @@ func TestSearchModifiedRange(t *testing.T) {
 	eq(names(TimeRange{From: 200}), "c-new.txt", "b-mid.txt")     // inclusive From, newest first
 	eq(names(TimeRange{To: 300}), "b-mid.txt", "a-old.txt")       // exclusive To
 	eq(names(TimeRange{From: 150, To: 250}), "b-mid.txt")
+}
+
+func TestUpsertBatchRepeatedPathKeepsLast(t *testing.T) {
+	idx := openTest(t)
+	run := mustRun(t, idx)
+
+	first := File{VolumeID: testVolume, Path: "a/x.txt", Name: "x.txt", Dir: "a", Ext: "txt", Size: 1, ModTime: 1}
+	second := first
+	second.Size = 2
+	other := File{VolumeID: testVolume, Path: "a/y.txt", Name: "y.txt", Dir: "a", Ext: "txt", Size: 9, ModTime: 9}
+	if err := idx.UpsertBatch([]File{first, other, second}, run); err != nil {
+		t.Fatalf("UpsertBatch with a repeated path: %v", err)
+	}
+
+	got, ok, err := idx.Stat(testVolume, "a/x.txt")
+	if err != nil || !ok || got.Size != 2 {
+		t.Fatalf("Stat = %+v ok=%v err=%v, want size 2 (the later entry)", got, ok, err)
+	}
+	if s, _ := idx.VolumeStats(testVolume); s.FileCount != 2 {
+		t.Fatalf("want 2 files, got %+v", s)
+	}
+}
+
+func TestSearchIsCaseInsensitiveAndTreatsWildcardsLiterally(t *testing.T) {
+	idx := openTest(t)
+	run := mustRun(t, idx)
+	files := []File{
+		{VolumeID: testVolume, Path: "Résumé.PDF", Name: "Résumé.PDF", Ext: "PDF"},
+		{VolumeID: testVolume, Path: "100%_done.txt", Name: "100%_done.txt", Ext: "txt"},
+		{VolumeID: testVolume, Path: "100 done.txt", Name: "100 done.txt", Ext: "txt"},
+	}
+	if err := idx.UpsertBatch(files, run); err != nil {
+		t.Fatal(err)
+	}
+
+	for q, want := range map[string]string{"RÉSUMÉ": "Résumé.PDF", "pdf": "Résumé.PDF", "%_": "100%_done.txt"} {
+		got, err := idx.Search(testVolume, q, 10, true, TimeRange{})
+		if err != nil || len(got) != 1 || got[0].Name != want {
+			t.Errorf("Search(%q) = %+v, err=%v; want only %q", q, got, err, want)
+		}
+	}
+}
+
+func TestOpenIsIdempotent(t *testing.T) {
+	idx := openTest(t)
+	if err := idx.migrate(); err != nil {
+		t.Fatalf("migrating an up-to-date schema: %v", err)
+	}
+	var n int
+	if err := idx.db.QueryRow(`SELECT count(*) FROM schema_migrations`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("schema_migrations rows = %d, err=%v; want 1", n, err)
+	}
 }

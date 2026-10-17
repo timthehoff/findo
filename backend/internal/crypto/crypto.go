@@ -1,4 +1,4 @@
-// Package crypto encrypts secrets Findo persists to SQLite (SMB volume
+// Package crypto encrypts secrets Findo persists to Postgres (SMB volume
 // passwords) at rest, using AES-256-GCM under a single server-wide master
 // key supplied via FINDO_MASTER_KEY. The key never touches the database;
 // only ciphertext does, so a copy of the DB file alone doesn't expose

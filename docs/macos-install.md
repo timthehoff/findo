@@ -10,13 +10,16 @@ automatic login, or adapt the plist into a LaunchDaemon with a `UserName` key.)
 curl -fsSL https://raw.githubusercontent.com/timthehoff/findo/main/deploy/macos/install.sh | sh
 ```
 
-The script downloads the newest release for your CPU (Apple silicon or Intel),
+The script needs Homebrew: it installs and starts Postgres (`brew services start
+postgresql@17`) and creates the `findo` database if they're missing, unless
+`.env` already sets `DATABASE_URL`. It downloads the newest release for your CPU (Apple silicon or Intel),
 checks it against the release's `SHA256SUMS`, and sets up:
 
 | What | Where |
 | --- | --- |
 | Binary | `~/.local/bin/findo-server` |
-| Config and database | `~/Library/Application Support/Findo/` (`.env`, `findo.db`) |
+| Config | `~/Library/Application Support/Findo/.env` |
+| Index database | Postgres database `findo` (Homebrew's `postgresql@17`, `brew services`) |
 | Log | `~/Library/Logs/Findo/findo.log` |
 | Agent | `~/Library/LaunchAgents/com.findo.server.plist`, label `com.findo.server` |
 
@@ -48,8 +51,9 @@ launchctl bootout gui/$(id -u)/com.findo.server
 rm ~/Library/LaunchAgents/com.findo.server.plist ~/.local/bin/findo-server
 ```
 
-The data directory is left in place; delete `~/Library/Application Support/Findo`
-too to discard the index and stored credentials.
+The config directory and the Postgres database are left in place. To discard the
+index and stored credentials, delete `~/Library/Application Support/Findo` and
+run `dropdb findo` (from `$(brew --prefix postgresql@17)/bin`).
 
 ## Cutting a release
 
@@ -59,3 +63,12 @@ arm64 and amd64 (version stamped from the tag), writes `SHA256SUMS`, and
 attaches them to the GitHub release, creating it first if the tag came from
 `git push` (marked pre-release for 0.x). The dashboard's "update available"
 badge reads these releases; the installer downloads from them.
+
+## Postgres notes
+
+Homebrew's Postgres listens on `localhost` and its Unix socket only, and trusts
+local connections, so Findo connects as your user with no password
+(`DATABASE_URL=postgres:///findo`). Don't expose its port to the LAN. To use a
+different server, set `DATABASE_URL` in `.env`. Back up the index with
+`pg_dump findo`; only the `volumes` table (encrypted NAS passwords) and settings
+are irreplaceable, the rest is rebuilt by re-crawling.

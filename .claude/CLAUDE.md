@@ -39,7 +39,7 @@ natively on macOS), in `backend/`:
 
 ## Current status
 
-Backend is feature-complete for the web-only scope: SMB crawl → SQLite
+Backend is feature-complete for the web-only scope: SMB crawl → Postgres
 index → read-only HTTP API (list, search, Range-aware content with
 inline/download handling, health/stats, manual reindex), kept fresh between
 crawls by a live change-notify listener. One server can run several
@@ -69,8 +69,10 @@ hence `/volumes.html`; `/search.html` 301s to `/`.)
 Native macOS, no Docker. `deploy/macos/install.sh` is a curl-able installer
 that downloads the newest GitHub release binary (arm64 or amd64, verified
 against `SHA256SUMS`) and installs a launchd agent (`com.findo.server`, plist
-written inline by the script): binary in `~/.local/bin`, `.env` + `findo.db`
-in `~/Library/Application Support/Findo` (the agent's working directory), log
+written inline by the script): binary in `~/.local/bin`, `.env` in
+`~/Library/Application Support/Findo` (the agent's working directory), the
+index in a Homebrew-managed local Postgres (`postgresql@17`, database
+`findo`, installed and started by the script), log
 in `~/Library/Logs/Findo`. It generates `FINDO_MASTER_KEY` once and never
 overwrites an existing `.env`; `FINDO_VERSION` pins a release and
 `FINDO_BINARY` installs a local build. See `docs/macos-install.md`.
@@ -112,12 +114,14 @@ comment for the `curl` command that registers it as a volume).
   `modified_after`/`modified_before` (YYYY-MM-DD or unix) and `tz`, and
   reports the detected range as `modified`. A bounded range sorts newest-first.
 - Layout: `cmd/findo-server` (entrypoint) · `internal/config` (env/.env
-  loading; just `FINDO_MASTER_KEY`/`HTTP_ADDR`/`DB_PATH` — no SMB connection
+  loading; just `FINDO_MASTER_KEY`/`HTTP_ADDR`/`DATABASE_URL` — no SMB connection
   details) · `internal/crypto` (AES-256-GCM encrypt/decrypt for volume
   passwords at rest) · `internal/smbclient` (SMB2 session via `go-smb2`,
   wraps one long-lived session per volume — don't reconnect per request) ·
-  `internal/index` (SQLite-backed metadata store, `modernc.org/sqlite`, pure
-  Go/no cgo; also owns volume config CRUD in `volumes.go`) · `internal/httpapi`
+  `internal/index` (Postgres-backed metadata store via `pgx` through
+  `database/sql`, pure Go/no cgo; schema in numbered `migrations/*.sql` applied
+  by `migrate.go` — add a new file, never edit an applied one; also owns volume
+  config CRUD in `volumes.go`) · `internal/testdb` (per-test Postgres schema) · `internal/httpapi`
   (routes/handlers/per-volume crawl orchestration) · `internal/dashboard`
   (embedded static multi-page site: `index.html` for search/browse,
   `volumes.html` for volume config/monitoring, sharing `css/`/`js/` between
@@ -129,7 +133,7 @@ comment for the `curl` command that registers it as a volume).
   chains its initial crawl and change-notify watch; `Server.stopVolume`
   tears it down (used on delete, disable, or before reconnecting after an
   edit). Every `Index` method that touches `files`/`crawl_runs` takes an
-  explicit `volumeID` — the same SQLite DB backs every volume, distinguished
+  explicit `volumeID` — the same database backs every volume, distinguished
   by that column, rather than one DB file per volume.
 - Every crawl records a `trigger` (`manual` from `/reindex`, `startup` from
   `StartVolume`'s initial crawl, `periodic` from the 24h safety net,
@@ -139,11 +143,18 @@ comment for the `curl` command that registers it as a volume).
   `volumeRuntime` also tracks change-notify health in memory (connected,
   last event time, resync count) — not persisted, since it's only
   meaningful for the currently-running process.
-- SQLite is opened with `SetMaxOpenConns(1)` since the crawler and HTTP
-  handlers share one `*sql.DB` — don't raise this without also handling
-  concurrent-writer locking (WAL mode, busy_timeout, etc.). Only one
-  goroutine (`Index.StreamUpsert`'s consumer, in `Crawl`) ever writes during
-  a crawl, so this doesn't need its own locking on top.
+- Postgres is reached through a small `database/sql` pool (`SetMaxOpenConns(10)`),
+  so the crawler's batch upserts and HTTP reads don't block each other.
+  `UpsertBatch` is one `INSERT … SELECT FROM unnest(arrays) ON CONFLICT`
+  statement per batch (repeated paths in a batch are collapsed first, since
+  one statement can't update a row twice). File names sort with `COLLATE "C"`
+  to keep byte order independent of the server's locale. Name search is
+  `ILIKE '%q%'`, backed by a `pg_trgm` GIN index.
+- Tests need Postgres: `make test` runs them through `scripts/with-testdb.sh`,
+  which starts a throwaway cluster on a Unix socket in a temp dir and sets
+  `FINDO_TEST_DSN`; each test then gets its own schema from `testdb.DSN(t)`.
+  Plain `go test` without that variable **skips** database tests (with a
+  message) instead of failing. Requires `brew install postgresql@17`.
 - Crawl strategy is mark-and-sweep reconciliation: rows are upserted (not
   blindly reinserted) and stamped with the crawl's `last_seen_run`; a final
   sweep deletes rows not stamped with the current run, i.e. anything no
@@ -241,4 +252,4 @@ needs test coverage alongside it, not bolted on later.
 - Keep comments to the "why", not the "what" — this repo's existing code
   favors short package-level doc comments plus the occasional inline comment
   explaining a non-obvious tradeoff (e.g. why full-replace crawl, why
-  `SetMaxOpenConns(1)`).
+  `COLLATE "C"`).

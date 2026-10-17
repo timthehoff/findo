@@ -12,9 +12,9 @@ import (
 )
 
 type Config struct {
-	HTTPAddr  string
-	DBPath    string
-	MasterKey []byte // decoded, KeySize bytes; encrypts volume passwords at rest
+	HTTPAddr    string
+	DatabaseURL string // Postgres connection string
+	MasterKey   []byte // decoded, KeySize bytes; encrypts volume passwords at rest
 }
 
 // Load reads configuration from the environment, first loading any KEY=VALUE
@@ -37,9 +37,10 @@ func Load(envPath string) (Config, error) {
 	}
 
 	return Config{
-		HTTPAddr:  getEnvDefault("HTTP_ADDR", ":8080"),
-		DBPath:    getEnvDefault("DB_PATH", "findo.db"),
-		MasterKey: key,
+		HTTPAddr: getEnvDefault("HTTP_ADDR", ":8080"),
+		// Default: the local Postgres over its Unix socket, database "findo".
+		DatabaseURL: getEnvDefault("DATABASE_URL", "postgres:///findo"),
+		MasterKey:   key,
 	}, nil
 }
 
