@@ -3,6 +3,7 @@ package extract
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -32,7 +33,7 @@ func zipOf(t *testing.T, parts ...string) []byte {
 }
 
 func extractBytes(ext string, data []byte, maxText int64) (string, error) {
-	return Extract(ext, bytes.NewReader(data), int64(len(data)), maxText)
+	return Extract(context.Background(), ext, bytes.NewReader(data), int64(len(data)), maxText)
 }
 
 const (
@@ -265,12 +266,12 @@ func TestOfficeVariantExtensionsUseTheSameExtractors(t *testing.T) {
 	for _, e := range Supported() {
 		supported[e] = true
 	}
-	for _, e := range []string{"docx", "docm", "dotx", "xlsx", "xlsm", "xltx", "pptx", "pptm", "ppsx", "potx"} {
+	for _, e := range []string{"docx", "docm", "dotx", "xlsx", "xlsm", "xltx", "pptx", "pptm", "ppsx", "potx", "pdf"} {
 		if !supported[e] {
 			t.Errorf("Supported() is missing %s", e)
 		}
 	}
-	for _, e := range []string{"doc", "xls", "ppt", "pdf", "pages", "numbers", "key"} {
+	for _, e := range []string{"doc", "xls", "ppt", "pages", "numbers", "key"} {
 		if supported[e] {
 			t.Errorf("%s must not be claimed (no extractor for it)", e)
 		}
@@ -296,7 +297,7 @@ func TestBlockCacheTurnsManySmallReadsIntoFew(t *testing.T) {
 	data := zipOf(t, "word/document.xml", `<w:document `+wNS+`><w:body>`+body.String()+`</w:body></w:document>`)
 
 	counter := &countingReaderAt{r: bytes.NewReader(data)}
-	got, err := Extract("docx", counter, int64(len(data)), 1<<30)
+	got, err := Extract(context.Background(), "docx", counter, int64(len(data)), 1<<30)
 	if err != nil || !strings.Contains(got, "line 19999") {
 		t.Fatalf("extract: %v", err)
 	}

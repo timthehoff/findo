@@ -41,7 +41,7 @@ Current build status and what's implemented lives in
 
 ## Backend: running it
 
-Requires Go 1.25+ (see `backend/go.mod`) and a local Postgres:
+Requires Go 1.26+ (see `backend/go.mod`; the PDF engine needs it) and a local Postgres:
 `brew install postgresql@17 && brew services start postgresql@17`, then create the
 dev database once with `$(brew --prefix postgresql@17)/bin/createdb findo_dev`.
 

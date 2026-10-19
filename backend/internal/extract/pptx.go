@@ -2,6 +2,7 @@ package extract
 
 import (
 	"archive/zip"
+	"context"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -52,7 +53,7 @@ var (
 )
 
 // extractPptx reads slide text in slide order, then the speaker notes.
-func extractPptx(r io.ReaderAt, size, maxText int64) (string, error) {
+func extractPptx(_ context.Context, r io.ReaderAt, size, maxText int64) (string, error) {
 	zr, err := openPackage(r, size)
 	if err != nil {
 		return "", err

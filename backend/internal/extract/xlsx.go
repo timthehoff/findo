@@ -2,6 +2,7 @@ package extract
 
 import (
 	"archive/zip"
+	"context"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -14,7 +15,7 @@ import (
 // extractXlsx reads spreadsheet text, sheet by sheet in workbook order: each
 // sheet's name, then its text cells, one row per line with tabs between cells.
 // Numbers, dates and booleans are skipped: only words are worth searching.
-func extractXlsx(r io.ReaderAt, size, maxText int64) (string, error) {
+func extractXlsx(_ context.Context, r io.ReaderAt, size, maxText int64) (string, error) {
 	zr, err := openPackage(r, size)
 	if err != nil {
 		return "", err

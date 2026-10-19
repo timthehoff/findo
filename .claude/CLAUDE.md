@@ -107,7 +107,7 @@ comment for the `curl` command that registers it as a volume).
 
 ## Backend conventions (Go, `backend/`)
 
-- Module: `github.com/thoff/findo/backend`, Go 1.25.
+- Module: `github.com/thoff/findo/backend`, Go 1.26 (required by go-pdfium).
 - Search dates: `internal/datequery` hand-parses a time phrase out of the
   query ("report last month", "in March 2024", "since 2023") into a
   `[from,to)` mtime range; the rest is the name match. `last/past N units` is
@@ -196,10 +196,24 @@ comment for the `curl` command that registers it as a volume).
   the zip reader's many tiny reads into 256 KiB reads, since each read is a
   round trip to the NAS. A password-protected file (an OLE file with an
   OOXML name) is recorded as `skipped: encrypted`; legacy `.doc/.xls/.ppt`
-  and iWork have no extractor. `GET /content/status` reports per-volume
+  and iWork have no extractor.
+  `pdf` uses PDFium (Chrome's engine) compiled to WebAssembly and run by
+  wazero via `go-pdfium` (`extract/pdf.go`): still one pure-Go binary, no
+  cgo, but about +10 MB and ~300 MB resident while loaded, so the engine
+  starts lazily on the first PDF (about 3 s) and is closed after 5 idle
+  minutes. A pure-Go parser (`ledongthuc/pdf`) was tried first and rejected:
+  no AES-256, nothing from some older producers, panics on damaged files.
+  PDFium reads owner-password-only PDFs (copy/print restrictions) normally,
+  repairs most damage, and reports a real password as `skipped: encrypted`; an
+  image-only scan gives no text, so it is `skipped: no_text` (OCR belongs to
+  C). The caller's deadline interrupts a stuck page with `Instance.Kill()`
+  (never `Close()` while a call is running: that races), so `Extract` takes a
+  `context.Context`. Under `-race` the engine takes ~20 s to compile, so the
+  restart half of the idle test only runs without `-race`. `GET /content/status` reports per-volume
   progress and skip/failure reasons for the Volumes page. Fixtures in
-  `testdata/seed/office/` (also in the dev Samba share) were written by
-  python-docx, openpyxl and python-pptx, so tests check real-world structure.
+  `testdata/seed/office/` and `testdata/seed/pdf/` (also in the dev Samba share)
+  were written by python-docx, openpyxl, python-pptx and PDF producers
+  (Chrome, macOS, PyMuPDF), so tests check real-world structure.
 - `/search` returns name matches first (unchanged substring search), then,
   if there is room under `limit`, files whose extracted text matches
   (`Index.SearchContent`). Each entry has `match` (`name` or `content`) and,
