@@ -7,10 +7,13 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/klippa-app/go-pdfium/requests"
 )
 
 func readPDFFixture(t *testing.T, name string) []byte {
@@ -301,5 +304,29 @@ func TestPDFEngineIsReleasedWhenIdleAndComesBack(t *testing.T) {
 func TestPDFLigaturesAreExpanded(t *testing.T) {
 	if got := pdfLigatures.Replace("oﬃce ﬁrst ﬂow diﬀ baﬄe ﬅ"); got != "office first flow diff baffle st" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+// The engine parses untrusted files, so it must not be able to see the host's
+// filesystem. go-pdfium mounts "/" read-write by default; we replace that with
+// an empty one. Opening a real file by path therefore has to fail, while the
+// same file opened through a reader (how Findo does it) works.
+func TestPDFEngineHasNoFilesystemAccess(t *testing.T) {
+	abs, err := filepath.Abs("../../testdata/seed/pdf/macos-text.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	inst, err := acquirePDF()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer releasePDF()
+	defer inst.Close()
+
+	if _, err := inst.OpenDocument(&requests.OpenDocument{FilePath: &abs}); err == nil {
+		t.Fatal("the PDF engine opened a file by host path: its sandbox has filesystem access")
+	}
+	if got, err := extractPDFBytes(context.Background(), readPDFFixture(t, "macos-text"), 1<<20); err != nil || !strings.Contains(got, "zeppelin") {
+		t.Fatalf("reading through a reader must still work: %q, %v", got, err)
 	}
 }

@@ -1,6 +1,6 @@
 module github.com/thoff/findo/backend
 
-go 1.26.0
+go 1.26.9
 
 require (
 	github.com/hirochachacha/go-smb2 v1.1.0

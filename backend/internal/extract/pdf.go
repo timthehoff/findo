@@ -26,6 +26,11 @@ import (
 
 const pdfMaxInstances = 4 // matches the most workers the content settings allow
 
+// pdfMemoryLimitPages caps each engine instance's WebAssembly memory (64 KiB
+// pages, so 1 GiB). wazero's default is 4 GiB per instance, and a hostile
+// PDF can ask for as much as it likes, times four workers.
+const pdfMemoryLimitPages = 16384
+
 // pdfIdleTimeout is how long the engine stays loaded after its last use. It
 // holds a few hundred MB, which is worth freeing between indexing runs.
 // Variable so tests can shorten it.
@@ -52,11 +57,19 @@ func acquirePDF() (pdfium.Pdfium, error) {
 		pool, err := webassembly.Init(webassembly.Config{
 			MaxIdle:  1,
 			MaxTotal: pdfMaxInstances,
-			// CloseOnContextDone is what lets Instance.Close interrupt a call that
-			// is stuck inside the engine; the feature flags are PDFium's own needs.
+			// The engine parses untrusted files, so it gets nothing but the bytes we
+			// hand it: go-pdfium's default mounts the host's whole root filesystem
+			// read-write into the sandbox, which we never need (documents arrive
+			// through a reader, not a path).
+			FSConfig: wazero.NewFSConfig(),
+			Stdout:   io.Discard,
+			Stderr:   io.Discard,
+			// CloseOnContextDone is what lets Kill interrupt a call that is stuck
+			// inside the engine; the feature flags are PDFium's own needs.
 			RuntimeConfig: wazero.NewRuntimeConfig().
 				WithCoreFeatures(api.CoreFeaturesV2 | experimental.CoreFeaturesExceptionHandling).
-				WithCloseOnContextDone(true),
+				WithCloseOnContextDone(true).
+				WithMemoryLimitPages(pdfMemoryLimitPages),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("start the PDF engine: %w", err)
