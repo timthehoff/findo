@@ -1,0 +1,28 @@
+version: 2
+updates:
+  # Go modules. The PDFium engine ships inside go-pdfium (as a WebAssembly
+  # blob), so a go-pdfium bump is a PDFium bump. go-pdfium and wazero parse
+  # untrusted files, so each gets its own PR to review and, if a PDF regresses,
+  # to bisect; everything else is grouped to keep the noise down.
+  - package-ecosystem: gomod
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: [dependencies]
+    groups:
+      go-routine:
+        patterns: ["*"]
+        exclude-patterns:
+          - github.com/klippa-app/go-pdfium
+          - github.com/tetratelabs/wazero
+        update-types: [minor, patch]
+
+  # Workflow actions (checkout, setup-go, ...).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    labels: [dependencies]
