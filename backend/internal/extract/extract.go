@@ -6,6 +6,7 @@
 package extract
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -21,13 +22,16 @@ var (
 )
 
 // Func reads up to roughly maxText bytes of text from r (size bytes long).
-type Func func(r io.ReaderAt, size, maxText int64) (string, error)
+// ctx lets a caller interrupt a stuck extraction; extractors that only read
+// from r can ignore it, since closing r already stops them.
+type Func func(ctx context.Context, r io.ReaderAt, size, maxText int64) (string, error)
 
 var extractors = map[string]Func{
 	filetype.ExtText: extractText,
 	filetype.ExtDocx: extractDocx,
 	filetype.ExtXlsx: extractXlsx,
 	filetype.ExtPptx: extractPptx,
+	filetype.ExtPDF:  extractPDF,
 }
 
 // Supported returns the lowercase extensions Extract can handle right now.
@@ -40,7 +44,7 @@ func Supported() []string {
 }
 
 // Extract returns the text of a file with the given lowercase extension.
-func Extract(ext string, r io.ReaderAt, size, maxText int64) (string, error) {
+func Extract(ctx context.Context, ext string, r io.ReaderAt, size, maxText int64) (string, error) {
 	info, ok := filetype.ByExt(ext)
 	if !ok || info.Extractor == "" {
 		return "", ErrUnsupported
@@ -49,5 +53,5 @@ func Extract(ext string, r io.ReaderAt, size, maxText int64) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("%w: %s", ErrUnsupported, info.Extractor)
 	}
-	return fn(r, size, maxText)
+	return fn(ctx, r, size, maxText)
 }

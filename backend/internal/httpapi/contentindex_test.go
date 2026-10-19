@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -383,5 +384,74 @@ func TestContentPassIndexesOfficeFilesAndReportsEncryptedOnes(t *testing.T) {
 	rec = getText(srv, textURL(volID, "office/locked.docx", ""))
 	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "password-protected") {
 		t.Fatalf("/files/text for a locked file = %d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestContentPassIndexesPDFsAndExplainsTheOnesItCant(t *testing.T) {
+	srv, smb, volID := newTestServer(t)
+	for _, f := range []string{"chrome-unicode", "compressed-objstm", "aes256-owner-only", "password-protected", "scanned-imageonly"} {
+		data, err := os.ReadFile("../../testdata/seed/pdf/" + f + ".pdf")
+		if err != nil {
+			t.Fatal(err)
+		}
+		smb.setContent("pdfs/"+f+".pdf", data, 1)
+	}
+	smb.setContent("pdfs/broken.pdf", []byte("%PDF-1.4 but then nothing useful"), 1)
+	optIn(t, srv, volID)
+	srv.contentPass(context.Background())
+
+	for path, want := range map[string]contentRow{
+		"pdfs/chrome-unicode.pdf":     {"done", ""},
+		"pdfs/compressed-objstm.pdf":  {"done", ""},
+		"pdfs/aes256-owner-only.pdf":  {"done", ""},
+		"pdfs/password-protected.pdf": {"skipped", "encrypted"},
+		"pdfs/scanned-imageonly.pdf":  {"skipped", "no_text"},
+	} {
+		got, ok := contentStateOf(t, srv, volID, path)
+		if !ok || got != want {
+			t.Errorf("%s = %+v (recorded=%v), want %+v", path, got, ok, want)
+		}
+	}
+	if st, ok := contentStateOf(t, srv, volID, "pdfs/broken.pdf"); !ok || st.status == "done" {
+		t.Errorf("a broken PDF must not be recorded as indexed: %+v (recorded=%v)", st, ok)
+	}
+
+	// Searchable by words from the text layer, in several scripts.
+	if got := searchFor(t, srv, "q=hydrogen"); len(got.Entries) != 3 {
+		t.Fatalf("hydrogen appears in three readable PDFs: %v", paths(got))
+	}
+	if got := searchFor(t, srv, "q="+url.QueryEscape("日本語")); fmt.Sprint(paths(got)) != "[content:pdfs/chrome-unicode.pdf]" {
+		t.Fatalf("a CJK word: %v", paths(got))
+	}
+	rec := getText(srv, textURL(volID, "pdfs/password-protected.pdf", ""))
+	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "password-protected") {
+		t.Fatalf("/files/text for a locked PDF = %d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestContentPassCutsOffAStalledPDFRead(t *testing.T) {
+	srv, smb, volID := newTestServer(t)
+	srv.contentTimeout = 300 * time.Millisecond
+	data, err := os.ReadFile("../../testdata/seed/pdf/macos-text.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	smb.setContent("stuck.pdf", data, 1)
+	smb.setContent("fine.pdf", data, 1)
+	smb.blockOpen = map[string]bool{"stuck.pdf": true}
+	optIn(t, srv, volID)
+
+	done := make(chan struct{})
+	go func() { srv.contentPass(context.Background()); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the pass hung on a stalled PDF read")
+	}
+	if st, ok := contentStateOf(t, srv, volID, "stuck.pdf"); !ok || st.status != "failed" {
+		t.Fatalf("stuck.pdf = %+v (recorded=%v), want failed", st, ok)
+	}
+	if st, ok := contentStateOf(t, srv, volID, "fine.pdf"); !ok || st.status != "done" {
+		t.Fatalf("a stalled file must not affect others: fine.pdf = %+v", st)
 	}
 }

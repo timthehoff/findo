@@ -2,6 +2,7 @@ package extract
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -11,7 +12,7 @@ import (
 func extractString(t *testing.T, ext, content string, maxText int64) (string, error) {
 	t.Helper()
 	r := bytes.NewReader([]byte(content))
-	return Extract(ext, r, int64(len(content)), maxText)
+	return Extract(context.Background(), ext, r, int64(len(content)), maxText)
 }
 
 func TestExtractPlainText(t *testing.T) {
@@ -69,7 +70,7 @@ func TestExtractToleratesAStrayInvalidByte(t *testing.T) {
 }
 
 func TestExtractUnsupportedTypes(t *testing.T) {
-	for _, ext := range []string{"pdf", "doc", "jpg", "nope", ""} {
+	for _, ext := range []string{"doc", "jpg", "mp3", "nope", ""} {
 		if _, err := extractString(t, ext, "x", 100); !errors.Is(err, ErrUnsupported) {
 			t.Errorf("%q: got %v, want ErrUnsupported", ext, err)
 		}
@@ -86,7 +87,7 @@ func TestSupportedCoversTextAndCode(t *testing.T) {
 			t.Errorf("Supported() is missing %q", want)
 		}
 	}
-	for _, not := range []string{"pdf", "doc", "jpg", "html"} {
+	for _, not := range []string{"doc", "jpg", "mp3", "html"} {
 		if got[not] {
 			t.Errorf("Supported() should not include %q yet", not)
 		}

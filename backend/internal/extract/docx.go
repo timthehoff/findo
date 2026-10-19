@@ -1,6 +1,7 @@
 package extract
 
 import (
+	"context"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -10,7 +11,7 @@ import (
 // extractDocx reads Word text: the body, then footnotes, endnotes and
 // comments (all searchable, none boilerplate like headers and footers).
 // Paragraphs are separated by blank lines so the chunker can split on them.
-func extractDocx(r io.ReaderAt, size, maxText int64) (string, error) {
+func extractDocx(_ context.Context, r io.ReaderAt, size, maxText int64) (string, error) {
 	zr, err := openPackage(r, size)
 	if err != nil {
 		return "", err

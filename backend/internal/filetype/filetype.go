@@ -49,6 +49,7 @@ const (
 	ExtDocx = "docx" // Word (OOXML)
 	ExtXlsx = "xlsx" // Excel (OOXML)
 	ExtPptx = "pptx" // PowerPoint (OOXML)
+	ExtPDF  = "pdf"  // PDF text layer
 )
 
 const (
@@ -204,6 +205,7 @@ func init() {
 	`)
 	add(textPlain, KindTxt, true, codeExts...)
 
+	setExtractor(ExtPDF, "pdf")
 	setExtractor(ExtDocx, "docx", "docm", "dotx")
 	setExtractor(ExtXlsx, "xlsx", "xlsm", "xltx")
 	setExtractor(ExtPptx, "pptx", "pptm", "ppsx", "potx")

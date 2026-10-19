@@ -2,6 +2,7 @@ package extract
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"strings"
 	"unicode/utf8"
@@ -11,7 +12,7 @@ import (
 // maxText bytes (plus a few to finish a UTF-8 sequence), refuses anything with
 // a NUL byte or mostly invalid UTF-8 (a binary file with a text extension),
 // and tolerates the odd stray byte.
-func extractText(r io.ReaderAt, size, maxText int64) (string, error) {
+func extractText(_ context.Context, r io.ReaderAt, size, maxText int64) (string, error) {
 	n := size
 	if n > maxText+utf8.UTFMax {
 		n = maxText + utf8.UTFMax

@@ -185,6 +185,11 @@ func (s *Server) extractFile(ctx context.Context, rt *volumeRuntime, cs index.Co
 		text string
 		err  error
 	}
+	// One deadline for the whole file: it interrupts a stuck PDF engine through
+	// ctx, and the select below closes the file for readers that only stall on I/O.
+	ctx, cancel := context.WithTimeout(ctx, s.contentTimeout)
+	defer cancel()
+
 	done := make(chan result, 1)
 	go func() {
 		defer func() {
@@ -192,23 +197,20 @@ func (s *Server) extractFile(ctx context.Context, rt *volumeRuntime, cs index.Co
 				done <- result{err: fmt.Errorf("extractor panic: %v", r)}
 			}
 		}()
-		text, err := extract.Extract(strings.ToLower(f.Ext), file, f.Size, cs.MaxTextBytes)
+		text, err := extract.Extract(ctx, strings.ToLower(f.Ext), file, f.Size, cs.MaxTextBytes)
 		done <- result{text, err}
 	}()
 
-	timer := time.NewTimer(s.contentTimeout)
-	defer timer.Stop()
 	select {
 	case r := <-done:
 		file.Close()
 		return r.text, r.err
-	case <-timer.C:
-		file.Close()
-		waitBriefly(done)
-		return "", errors.New("timed out reading the file")
 	case <-ctx.Done():
 		file.Close()
 		waitBriefly(done)
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return "", errors.New("timed out reading the file")
+		}
 		return "", ctx.Err()
 	}
 }
