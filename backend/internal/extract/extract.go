@@ -25,6 +25,9 @@ type Func func(r io.ReaderAt, size, maxText int64) (string, error)
 
 var extractors = map[string]Func{
 	filetype.ExtText: extractText,
+	filetype.ExtDocx: extractDocx,
+	filetype.ExtXlsx: extractXlsx,
+	filetype.ExtPptx: extractPptx,
 }
 
 // Supported returns the lowercase extensions Extract can handle right now.

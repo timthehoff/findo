@@ -75,6 +75,8 @@ func noTextReason(info index.ContentInfo, attempted bool) string {
 		return "this file isn't readable as text"
 	case "no_text":
 		return "this file contains no text"
+	case "encrypted":
+		return "this file is password-protected, so its text can't be read"
 	}
 	return "this file was skipped: " + info.Reason
 }

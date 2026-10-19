@@ -69,7 +69,7 @@ func TestExtractToleratesAStrayInvalidByte(t *testing.T) {
 }
 
 func TestExtractUnsupportedTypes(t *testing.T) {
-	for _, ext := range []string{"pdf", "docx", "jpg", "nope", ""} {
+	for _, ext := range []string{"pdf", "doc", "jpg", "nope", ""} {
 		if _, err := extractString(t, ext, "x", 100); !errors.Is(err, ErrUnsupported) {
 			t.Errorf("%q: got %v, want ErrUnsupported", ext, err)
 		}
@@ -86,7 +86,7 @@ func TestSupportedCoversTextAndCode(t *testing.T) {
 			t.Errorf("Supported() is missing %q", want)
 		}
 	}
-	for _, not := range []string{"pdf", "docx", "jpg", "html"} {
+	for _, not := range []string{"pdf", "doc", "jpg", "html"} {
 		if got[not] {
 			t.Errorf("Supported() should not include %q yet", not)
 		}

@@ -182,10 +182,24 @@ comment for the `curl` command that registers it as a volume).
   retry). Text lands in `chunks` (about 1500 bytes each, `extract.Chunk`) with
   a generated `tsvector`; both it and `content_state` cascade-delete with
   their `files` row, so sweeps and live deletes need no extra code.
-  `extract.Extract` picks an extractor from the registry's `Extractor` field
-  (only `text` exists so far: UTF-8 text, markup and source; a NUL byte or
-  mostly invalid UTF-8 means "not text"). `GET /content/status` reports
-  per-volume progress and skip/failure reasons for the Volumes page.
+  `extract.Extract` picks an extractor from the registry's `Extractor` field:
+  `text` (UTF-8 text, markup and source; a NUL byte or mostly invalid UTF-8
+  means "not text") and the pure-Go Office ones, `docx`/`xlsx`/`pptx`
+  (also the macro and template variants), which read the zip and its XML
+  in place via `ReadAt` with no download. Word text includes footnotes,
+  endnotes and comments but not headers; Excel yields sheet names and text
+  cells only (numbers, dates and booleans aren't searchable words); PowerPoint
+  yields slides in numeric order, then speaker notes. They are bounded:
+  decompressed XML is capped per part (a zip bomb costs a fixed amount, not
+  an unbounded one), archives are capped at 20,000 entries, shared-string
+  text at 32 MiB, and output at the text cap; a `blockReaderAt` cache turns
+  the zip reader's many tiny reads into 256 KiB reads, since each read is a
+  round trip to the NAS. A password-protected file (an OLE file with an
+  OOXML name) is recorded as `skipped: encrypted`; legacy `.doc/.xls/.ppt`
+  and iWork have no extractor. `GET /content/status` reports per-volume
+  progress and skip/failure reasons for the Volumes page. Fixtures in
+  `testdata/seed/office/` (also in the dev Samba share) were written by
+  python-docx, openpyxl and python-pptx, so tests check real-world structure.
 - `/search` returns name matches first (unchanged substring search), then,
   if there is room under `limit`, files whose extracted text matches
   (`Index.SearchContent`). Each entry has `match` (`name` or `content`) and,

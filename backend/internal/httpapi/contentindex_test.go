@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -331,5 +332,56 @@ func TestSettingsAndOptInKickTheIndexer(t *testing.T) {
 	case <-srv.contentKick:
 	default:
 		t.Fatal("opting a volume in should wake the indexer")
+	}
+}
+
+func TestContentPassIndexesOfficeFilesAndReportsEncryptedOnes(t *testing.T) {
+	srv, smb, volID := newTestServer(t)
+	for name, file := range map[string]string{
+		"memo.docx": "memo.docx", "budget.xlsx": "budget.xlsx", "roadmap.pptx": "roadmap.pptx",
+	} {
+		data, err := os.ReadFile("../../testdata/seed/office/" + file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		smb.setContent("office/"+name, data, 1)
+	}
+	// A password-protected document is an OLE file wearing a .docx name.
+	smb.setContent("office/locked.docx", append([]byte{0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1}, make([]byte, 200)...), 1)
+	smb.setContent("office/corrupt.xlsx", []byte("PK but not really a zip"), 1)
+	optIn(t, srv, volID)
+	srv.contentPass(context.Background())
+
+	for path, want := range map[string]string{
+		"office/memo.docx":    "done",
+		"office/budget.xlsx":  "done",
+		"office/roadmap.pptx": "done",
+		"office/locked.docx":  "skipped",
+		"office/corrupt.xlsx": "failed",
+	} {
+		st, ok := contentStateOf(t, srv, volID, path)
+		if !ok || st.status != want {
+			t.Errorf("%s = %+v (recorded=%v), want %s", path, st, ok, want)
+		}
+	}
+	if st, _ := contentStateOf(t, srv, volID, "office/locked.docx"); st.reason != "encrypted" {
+		t.Errorf("locked.docx reason = %q, want encrypted", st.reason)
+	}
+
+	// Searchable, with the viewer's text behind it.
+	got := searchFor(t, srv, "q=hydrogen")
+	if fmt.Sprint(paths(got)) != "[content:office/roadmap.pptx]" {
+		t.Fatalf("search for a word in speaker notes: %v", paths(got))
+	}
+	if got := searchFor(t, srv, "q=zeppelin"); len(got.Entries) != 2 {
+		t.Fatalf("zeppelin appears in the docx and the xlsx, and nowhere else: %v", paths(got))
+	}
+	rec := getText(srv, textURL(volID, "office/memo.docx", ""))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Quarterly Planning Memo") {
+		t.Fatalf("/files/text for a docx = %d %s", rec.Code, rec.Body)
+	}
+	rec = getText(srv, textURL(volID, "office/locked.docx", ""))
+	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "password-protected") {
+		t.Fatalf("/files/text for a locked file = %d %s", rec.Code, rec.Body)
 	}
 }
