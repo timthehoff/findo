@@ -345,6 +345,20 @@ comment for the `curl` command that registers it as a volume).
   result, so it stays accurate on a NAS too large to page through in the
   browser.
 
+## Dependency and security upkeep
+
+`.github/dependabot.yml` opens weekly PRs for Go modules (in `backend/`) and
+workflow actions. go-pdfium and wazero get their own PRs because they parse
+untrusted files: the PDFium engine is a WebAssembly blob inside go-pdfium, so a
+go-pdfium bump *is* a PDFium bump (its release notes don't name the upstream
+version, so read them and the Chrome/PDFium security bulletins). Review those
+against CI, which runs the PDF fixtures and the sandbox test.
+`.github/workflows/govulncheck.yml` runs `govulncheck` weekly and on go.mod
+changes; Dependabot doesn't bump the Go toolchain in go.mod's `go` line, so that
+is how a stale toolchain gets noticed: when it fails on a stdlib fix, raise the
+`go` line to the patch release it names. govulncheck can't see inside the PDFium
+blob.
+
 ## Workflow
 
 After making changes to `backend/`, run `make check` and `make test` from
