@@ -186,6 +186,7 @@ function renderBreadcrumbs() {
 
 const ICON_FOLDER = lineIcon('<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>', 22);
 const ICON_JUMP = lineIcon('<path d="M9 14 4 9l5-5"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/>');
+const ICON_TEXT = lineIcon('<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h6"/>');
 const ICON_COPY = lineIcon('<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>');
 const ICON_DOWNLOAD = lineIcon('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>');
 
@@ -279,6 +280,11 @@ function renderResults(entries, query, nameQuery = query, dateLabel = '') {
       ? `href="#" data-dir="${escapeHTML(f.path)}" data-vol="${f.volumeId}"`
       : `href="${contentURL}" target="_blank" rel="noopener"`;
     const fromContent = f.match === 'content';
+    // A content hit links to the file's extracted text, scrolled to the passage
+    // it came from, with the search words highlighted there too.
+    const textHref = fromContent && f.chunk != null
+      ? `/text.html?volume=${f.volumeId}&path=${encodeURIComponent(f.path)}&q=${encodeURIComponent(nameQuery)}#chunk-${f.chunk}`
+      : '';
     // One wrapper, so the tag sits beside the name instead of becoming its own
     // row in the flex column.
     const name = `<span class="result-title"><a class="result-name" ${target}>${nameHTML}</a>`
@@ -297,11 +303,16 @@ function renderResults(entries, query, nameQuery = query, dateLabel = '') {
         <div class="result-main">
           ${name}
           <span class="result-where" title="${escapeHTML(sharePath)}">${where}</span>
-          ${fromContent && f.snippet ? `<span class="result-snippet">${snippetHTML(f.snippet)}</span>` : ''}
+          ${fromContent && f.snippet
+            ? (textHref
+              ? `<a class="result-snippet" href="${textHref}" target="_blank" rel="noopener" title="Open the extracted text here">${snippetHTML(f.snippet)}</a>`
+              : `<span class="result-snippet">${snippetHTML(f.snippet)}</span>`)
+            : ''}
         </div>
         <div class="result-meta" title="${escapeHTML(date.toLocaleString())}">${meta}</div>
         <div class="result-actions">
           ${query ? `<a class="icon-btn" href="#" data-dir="${escapeHTML(parent)}" data-vol="${f.volumeId}" title="Show in folder" aria-label="Show in folder">${ICON_JUMP}</a>` : ''}
+          ${textHref ? `<a class="icon-btn" href="${textHref}" target="_blank" rel="noopener" title="View extracted text" aria-label="View extracted text">${ICON_TEXT}</a>` : ''}
           <button class="icon-btn" data-copy="${escapeHTML(f.path)}" data-vol="${f.volumeId}" title="Copy SMB path" aria-label="Copy SMB path">${ICON_COPY}</button>
           ${f.isDir ? `<span class="icon-btn" style="visibility:hidden" aria-hidden="true">${ICON_DOWNLOAD}</span>` : `<a class="icon-btn" href="${contentURL}&download=1" title="Download" aria-label="Download">${ICON_DOWNLOAD}</a>`}
         </div>

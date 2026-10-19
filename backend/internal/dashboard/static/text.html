@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Extracted text — Findo</title>
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/text.css">
+</head>
+<body>
+  <nav class="topnav">
+    <div class="brand-group">
+      <a class="brand" href="/">🐾 Findo</a>
+      <small class="version" data-version></small>
+    </div>
+    <a href="/">Search</a>
+    <a href="/volumes.html">Volumes</a>
+    <button class="icon-btn" data-theme-toggle></button>
+  </nav>
+
+  <div class="page-head">
+    <h1 id="fileName">Extracted text</h1>
+    <div class="head-actions" id="actions" hidden>
+      <a class="icon-btn with-label" id="openLink" target="_blank" rel="noopener" title="Open the original file"><span>Open file</span></a>
+      <a class="icon-btn with-label" id="downloadLink" title="Download the original file"><span>Download</span></a>
+    </div>
+  </div>
+  <div id="where" class="where muted"></div>
+  <div id="err"></div>
+  <p id="note" class="muted note" hidden>This is the text Findo extracted from the file for searching, not the file itself: layout and formatting are not kept.</p>
+  <article id="chunks" class="text-chunks"></article>
+
+  <script type="module" src="/js/text.js"></script>
+</body>
+</html>
