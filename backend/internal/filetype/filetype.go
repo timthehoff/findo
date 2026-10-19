@@ -43,8 +43,13 @@ type Info struct {
 	Extractor string `json:"-"`
 }
 
-// ExtText is the extractor for plain text, markup, config and source code.
-const ExtText = "text"
+// Extractor names (see internal/extract).
+const (
+	ExtText = "text" // plain text, markup, config and source code
+	ExtDocx = "docx" // Word (OOXML)
+	ExtXlsx = "xlsx" // Excel (OOXML)
+	ExtPptx = "pptx" // PowerPoint (OOXML)
+)
 
 const (
 	textPlain = "text/plain; charset=utf-8"
@@ -81,16 +86,23 @@ func init() {
 
 	add("application/msword", KindDoc, false, "doc")
 	add("application/vnd.openxmlformats-officedocument.wordprocessingml.document", KindDoc, false, "docx")
+	add("application/vnd.ms-word.document.macroEnabled.12", KindDoc, false, "docm")
+	add("application/vnd.openxmlformats-officedocument.wordprocessingml.template", KindDoc, false, "dotx")
 	add("application/vnd.apple.pages", KindDoc, false, "pages")
 	add("application/rtf", KindDoc, false, "rtf")
 
 	add("application/vnd.ms-excel", KindXLS, false, "xls")
 	add("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", KindXLS, false, "xlsx")
+	add("application/vnd.ms-excel.sheet.macroEnabled.12", KindXLS, false, "xlsm")
+	add("application/vnd.openxmlformats-officedocument.spreadsheetml.template", KindXLS, false, "xltx")
 	add("application/vnd.apple.numbers", KindXLS, false, "numbers")
 	add(textPlain, KindXLS, true, "csv", "tsv")
 
 	add("application/vnd.ms-powerpoint", KindPPT, false, "ppt")
 	add("application/vnd.openxmlformats-officedocument.presentationml.presentation", KindPPT, false, "pptx")
+	add("application/vnd.ms-powerpoint.presentation.macroEnabled.12", KindPPT, false, "pptm")
+	add("application/vnd.openxmlformats-officedocument.presentationml.slideshow", KindPPT, false, "ppsx")
+	add("application/vnd.openxmlformats-officedocument.presentationml.template", KindPPT, false, "potx")
 	add("application/vnd.apple.keynote", KindPPT, false, "key")
 
 	// Images. Inline only what Safari and Chromium both render; HEIC, TIFF,
@@ -192,6 +204,9 @@ func init() {
 	`)
 	add(textPlain, KindTxt, true, codeExts...)
 
+	setExtractor(ExtDocx, "docx", "docm", "dotx")
+	setExtractor(ExtXlsx, "xlsx", "xlsm", "xltx")
+	setExtractor(ExtPptx, "pptx", "pptm", "ppsx", "potx")
 	setExtractor(ExtText, append([]string{"txt", "md", "mdx", "rst", "adoc", "org", "log", "json", "xml", "csv", "tsv"}, codeExts...)...)
 
 	// Markup that can run script on this origin: known, never inline.

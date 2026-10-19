@@ -150,6 +150,8 @@ func (s *Server) indexOne(ctx context.Context, cs index.ContentSettings, f index
 		return false // shutting down: don't record a failure caused by that
 	}
 	switch {
+	case errors.Is(err, extract.ErrEncrypted):
+		return s.recordContent(s.idx.SaveContentSkip(f.VolumeID, f.Path, f.Size, f.ModTime, index.ContentSkipped, "encrypted"), f)
 	case errors.Is(err, extract.ErrBinary), errors.Is(err, extract.ErrUnsupported):
 		return s.recordContent(s.idx.SaveContentSkip(f.VolumeID, f.Path, f.Size, f.ModTime, index.ContentSkipped, "unsupported"), f)
 	case err != nil:
