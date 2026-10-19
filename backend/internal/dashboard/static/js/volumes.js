@@ -334,7 +334,7 @@ function openVolumeDialog(v) {
   document.getElementById('vHost').value = v ? v.host : '';
   document.getElementById('vShare').value = v ? v.share : '';
   document.getElementById('vUsername').value = v ? v.username : '';
-  document.getElementById('vPassword').placeholder = v ? 'leave blank to keep the current password' : '';
+  document.getElementById('vPassword').placeholder = v ? 'blank keeps the current one (required if you change host, share or username)' : '';
   document.getElementById('vPassword').required = !v;
   document.getElementById('vContentIndex').checked = !!(v && v.contentIndex);
   volumeForm.dataset.hadContent = v && v.contentIndex ? '1' : '';

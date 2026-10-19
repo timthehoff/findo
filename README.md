@@ -54,7 +54,8 @@ make run
 The server reads config from environment variables, optionally via a local
 `.env` file (see `backend/internal/config/config.go`). The only required var
 is `FINDO_MASTER_KEY`, which encrypts SMB volume passwords at rest. Optional:
-`HTTP_ADDR` (default `:8080`) and `DATABASE_URL` (default `postgres:///findo`, the
+`HTTP_ADDR` (default `127.0.0.1:8080`, this machine only; Findo has no login, so see
+[`docs/macos-install.md`](docs/macos-install.md) before widening it), `FINDO_ALLOWED_HOSTS`, and `DATABASE_URL` (default `postgres:///findo`, the
 local server over its Unix socket; `make run` uses `postgres:///findo_dev`).
 
 SMB volumes themselves aren't configured via environment variables — add one
@@ -71,7 +72,7 @@ All run from `backend/`:
 | `make check` | `gofmt -l` + `go vet` |
 | `make fix` | `gofmt -w` to auto-format |
 | `make test` | `go test -race ./...` against a throwaway Postgres (`scripts/with-testdb.sh`; no setup beyond the brew install above) |
-| `make run` | `go run ./cmd/findo-server` on `:8081` (override with `DEV_ADDR`) |
+| `make run` | `go run ./cmd/findo-server` on `127.0.0.1:8081` (override with `DEV_ADDR`) |
 | `make samba-up` / `samba-down` | start/stop the throwaway Samba test fixture (needs Docker) |
 
 CI runs `make check test build` on every push/PR.

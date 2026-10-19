@@ -15,6 +15,6 @@ services:
     image: dperson/samba
     command: -p -u "testuser;testpass" -s "testshare;/share;yes;no;yes;testuser"
     ports:
-      - "1445:445"
+      - "127.0.0.1:1445:445" # test credentials: keep it off the network
     volumes:
       - ../seed:/share

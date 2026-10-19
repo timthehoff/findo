@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -107,8 +106,7 @@ func writeVolumeWriteError(w http.ResponseWriter, err error) {
 
 func (s *Server) handleCreateVolume(w http.ResponseWriter, r *http.Request) {
 	var in volumeInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+	if !decodeJSON(w, r, &in) {
 		return
 	}
 	in.Name = strings.TrimSpace(in.Name)
@@ -159,13 +157,20 @@ func (s *Server) handleUpdateVolume(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var in volumeInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+	if !decodeJSON(w, r, &in) {
 		return
 	}
 	in.Name = strings.TrimSpace(in.Name)
 	if in.Name == "" || in.Host == "" || in.Share == "" || in.Username == "" {
 		writeError(w, http.StatusBadRequest, "name, host, share, and username are required")
+		return
+	}
+
+	// Pointing a volume at a different server while keeping its stored password
+	// would make the server authenticate to that server with the NAS password.
+	// So changing where it connects (or as whom) means typing the password again.
+	if in.Password == "" && (in.Host != existing.Host || in.Share != existing.Share || in.Username != existing.Username) {
+		writeError(w, http.StatusBadRequest, "changing the host, share or username requires entering the password again, so the stored password can't be sent to a different server")
 		return
 	}
 
@@ -255,8 +260,7 @@ func (s *Server) handleTestVolume(w http.ResponseWriter, r *http.Request) {
 // form to validate credentials before saving them.
 func (s *Server) handleTestVolumeInput(w http.ResponseWriter, r *http.Request) {
 	var in volumeInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+	if !decodeJSON(w, r, &in) {
 		return
 	}
 	if in.Host == "" || in.Share == "" || in.Username == "" || in.Password == "" {
