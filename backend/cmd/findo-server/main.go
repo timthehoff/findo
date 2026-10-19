@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/thoff/findo/backend/internal/config"
@@ -50,9 +51,34 @@ func main() {
 		go startVolumeWithRetry(ctx, srv, vol, 10, 3*time.Second)
 	}
 
+	allowed := cfg.AllowedHosts
+	if h, err := os.Hostname(); err == nil {
+		allowed = append(allowed, h)
+	}
+	httpSrv := newHTTPServer(cfg.HTTPAddr, httpapi.HostGuard(srv.Routes(), allowed))
+
 	log.Printf("findo-server listening on %s", listenURL(cfg.HTTPAddr))
-	if err := http.ListenAndServe(cfg.HTTPAddr, srv.Routes()); err != nil {
+	if config.ListensBeyondLoopback(cfg.HTTPAddr) {
+		log.Printf("WARNING: %s is reachable from other devices. Findo has no login: anyone who can connect can search and download files from every connected share. Only do this on a network you trust.", cfg.HTTPAddr)
+	}
+	if err := httpSrv.ListenAndServe(); err != nil {
 		log.Fatal(err)
+	}
+}
+
+// newHTTPServer builds the server with limits that stop a slow or oversized
+// request from holding a connection open: headers and the request as a whole
+// must arrive promptly, and idle keep-alive connections are dropped. There is
+// deliberately no WriteTimeout: it would cut off long file downloads and video
+// streaming.
+func newHTTPServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+		MaxHeaderBytes:    32 << 10,
 	}
 }
 

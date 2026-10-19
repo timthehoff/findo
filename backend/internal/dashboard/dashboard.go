@@ -19,5 +19,22 @@ func Handler() http.Handler {
 	if err != nil {
 		panic(err) // embedded at build time; can't fail at runtime
 	}
-	return http.FileServer(http.FS(sub))
+	return withSecurityHeaders(http.FileServer(http.FS(sub)))
+}
+
+// withSecurityHeaders applies a strict Content-Security-Policy and friends to
+// the dashboard pages. Everything the pages load is same-origin (modules,
+// stylesheets, the JSON API); the one concession is inline style attributes
+// (progress-bar widths). If markup from a file ever reached a page, this
+// stops it running or phoning home, and it keeps other sites from framing the
+// dashboard to trick clicks.
+func withSecurityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Referrer-Policy", "no-referrer")
+		next.ServeHTTP(w, r)
+	})
 }

@@ -240,6 +240,24 @@ comment for the `curl` command that registers it as a volume).
   highlights the `q` words, and scrolls to `#chunk-N`. Content hits in
   `/search` carry the best chunk's number (`chunk`), so the search page
   links each snippet, and a "view extracted text" icon, straight there.
+- Network exposure (**Findo has no login**): the server listens on `127.0.0.1:8080`
+  by default and logs a warning when `HTTP_ADDR` is widened. `main` wraps the
+  routes in `httpapi.HostGuard` (not inside `Routes()`, so route tests aren't
+  affected): it refuses a `Host` that isn't loopback, an IP literal, a
+  single-label name, a private suffix (`.local .lan .localhost .home.arpa
+  .internal .localdomain`), the machine's hostname, or `FINDO_ALLOWED_HOSTS`
+  (this defeats DNS rebinding, which always arrives with the attacker's public
+  domain as `Host`), and refuses state-changing requests whose `Origin` isn't the
+  request's own host (cross-site POSTs need no preflight, and JSON bodies are
+  parsed whatever their Content-Type). It's browser protection, not
+  authentication. The server has header/read/idle timeouts and a 32 KiB header
+  cap but deliberately no `WriteTimeout` (it would cut off long downloads and
+  video); JSON bodies are capped at 64 KiB (`decodeJSON`); request paths may not
+  contain `..` (`smbclient.ValidPath`, also enforced in `Client.Open`);
+  `PUT /volumes/{id}` requires the password when host, share or username
+  change, so a stored password can't be sent to a server chosen by whoever
+  made the request; dashboard pages carry a strict CSP, `X-Frame-Options:
+  DENY`, `nosniff` and `no-referrer`.
 - Tests need Postgres: `make test` runs them through `scripts/with-testdb.sh`,
   which starts a throwaway cluster on a Unix socket in a temp dir and sets
   `FINDO_TEST_DSN`; each test then gets its own schema from `testdb.DSN(t)`.

@@ -61,7 +61,7 @@ mv "$tmp/findo-server" "$BIN_DIR/findo-server"
 if [ ! -f "$DATA_DIR/.env" ]; then
   {
     echo "FINDO_MASTER_KEY=$(openssl rand -base64 32)"
-    echo "HTTP_ADDR=:8080"
+    echo "HTTP_ADDR=127.0.0.1:8080"
   } > "$DATA_DIR/.env"
   echo "Generated $DATA_DIR/.env: back up FINDO_MASTER_KEY; losing it means"
   echo "re-entering every stored SMB password."
@@ -126,4 +126,9 @@ if launchctl print "$domain/$LABEL" >/dev/null 2>&1; then
 fi
 launchctl bootstrap "$domain" "$PLIST"
 
-echo "Findo is running: see $LOG_DIR/findo.log (default http://localhost:8080/)"
+echo "Findo is running: see $LOG_DIR/findo.log (open http://localhost:8080/)"
+if grep -q '^HTTP_ADDR=127\.0\.0\.1' "$DATA_DIR/.env" 2>/dev/null; then
+  echo "It only accepts connections from this Mac. To reach it from your phone, set"
+  echo "HTTP_ADDR=:8080 in $DATA_DIR/.env and re-run this script. Findo has no login yet,"
+  echo "so do that only on a network you trust."
+fi

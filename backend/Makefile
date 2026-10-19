@@ -7,7 +7,7 @@ VERSION ?= $(or $(shell git describe --tags --exact-match 2>/dev/null | sed 's/^
 LDFLAGS := -X main.version=$(VERSION)
 
 # Dev port; 8080 is the production default. Env beats .env, so this wins.
-DEV_ADDR ?= :8081
+DEV_ADDR ?= 127.0.0.1:8081
 # A separate database, so `make run` never touches an installed Findo's data.
 DEV_DATABASE_URL ?= postgres:///findo_dev
 

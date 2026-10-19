@@ -330,6 +330,9 @@ func (q *dirQueue) done() {
 // returned handle implements io.ReaderAt + io.Seeker, suitable for
 // http.ServeContent.
 func (c *Client) Open(path string) (File, os.FileInfo, error) {
+	if !ValidPath(path) {
+		return nil, nil, fmt.Errorf("invalid path %q", path)
+	}
 	c.mu.Lock()
 	fs := c.fs
 	c.mu.Unlock()
@@ -348,6 +351,22 @@ func (c *Client) Open(path string) (File, os.FileInfo, error) {
 		return nil, nil, fmt.Errorf("stat %q: %w", path, err)
 	}
 	return f, info, nil
+}
+
+// ValidPath reports whether p is a share-relative path a caller may ask for:
+// no NUL byte and no ".." segment, checked with both separators because SMB
+// treats a backslash as one. The SMB server enforces its own share boundary,
+// but nothing here should hand it a path that tries to leave.
+func ValidPath(p string) bool {
+	if strings.ContainsRune(p, 0) {
+		return false
+	}
+	for _, seg := range strings.FieldsFunc(p, func(r rune) bool { return r == '/' || r == '\\' }) {
+		if seg == ".." {
+			return false
+		}
+	}
+	return true
 }
 
 func toSMBPath(path string) string {

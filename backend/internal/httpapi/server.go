@@ -173,6 +173,7 @@ func logMiddleware(next http.Handler) http.Handler {
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		log.Printf("write json response: %v", err)
@@ -364,6 +365,10 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dir := r.URL.Query().Get("path")
+	if !smbclient.ValidPath(dir) {
+		writeError(w, http.StatusBadRequest, "invalid 'path' query param")
+		return
+	}
 	files, err := s.idx.List(volumeID, dir, wantsHidden(r))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -490,6 +495,10 @@ func (s *Server) handleContent(w http.ResponseWriter, r *http.Request) {
 	p := r.URL.Query().Get("path")
 	if p == "" {
 		writeError(w, http.StatusBadRequest, "missing required query param 'path'")
+		return
+	}
+	if !smbclient.ValidPath(p) {
+		writeError(w, http.StatusBadRequest, "invalid 'path' query param")
 		return
 	}
 

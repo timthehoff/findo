@@ -153,3 +153,21 @@ func TestSplitHost(t *testing.T) {
 		}
 	}
 }
+
+func TestValidPath(t *testing.T) {
+	for p, want := range map[string]bool{
+		"": true, ".": true, "a": true, "a/b/c.txt": true, "/a/b": true, "a b/c d.txt": true,
+		"docs/..hidden": true, "docs/a..b": true, "..x": true, "x..": true, "a/./b": true,
+		"..": false, "../a": false, "a/..": false, "a/../b": false, "/../a": false,
+		`..\a`: false, `a\..\b`: false, `a/..\b`: false, "a/b/../../..": false,
+		"a\x00b": false, "..\x00": false,
+	} {
+		if got := ValidPath(p); got != want {
+			t.Errorf("ValidPath(%q) = %v, want %v", p, got, want)
+		}
+	}
+	// Open refuses before touching the connection.
+	if _, _, err := New("h", "s", "u", "p").Open("../etc/passwd"); err == nil || !strings.Contains(err.Error(), "invalid path") {
+		t.Fatalf("Open with .. = %v, want an invalid path error", err)
+	}
+}

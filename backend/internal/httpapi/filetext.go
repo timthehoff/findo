@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/thoff/findo/backend/internal/index"
+	"github.com/thoff/findo/backend/internal/smbclient"
 )
 
 // handleFileText serves a file's extracted text, the same text content search
@@ -26,6 +27,10 @@ func (s *Server) handleFileText(w http.ResponseWriter, r *http.Request) {
 	p := strings.Trim(r.URL.Query().Get("path"), "/")
 	if p == "" {
 		writeError(w, http.StatusBadRequest, "missing required query param 'path'")
+		return
+	}
+	if !smbclient.ValidPath(p) {
+		writeError(w, http.StatusBadRequest, "invalid 'path' query param")
 		return
 	}
 

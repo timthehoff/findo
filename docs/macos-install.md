@@ -26,16 +26,37 @@ checks it against the release's `SHA256SUMS`, and sets up:
 The first run generates `.env` with a fresh `FINDO_MASTER_KEY`. **Back it up**:
 losing it means re-entering every stored SMB password. Re-running the script
 replaces the binary and restarts the agent, and never touches an existing
-`.env` or the database. Edit `HTTP_ADDR` in `.env` to change the port
-(default `:8080`), then re-run the script to restart.
+`.env` or the database. Edit `HTTP_ADDR` in `.env` to change the address or
+port (default `127.0.0.1:8080`), then re-run the script to restart.
 
 Environment overrides: `FINDO_VERSION=0.4.0` pins a release instead of the
 newest; `FINDO_BINARY=/path/to/findo-server` installs a local build (for
 example from `make build`) instead of downloading.
 
-Open `http://localhost:8080/` (or the Mac's hostname from other devices on your
-network) and add your NAS on the Volumes page. Register it by IP or a real DNS
-name rather than a `.local` mDNS name, which launchd services may not resolve.
+Open `http://localhost:8080/` and add your NAS on the Volumes page. Register it
+by IP or a real DNS name rather than a `.local` mDNS name, which launchd
+services may not resolve.
+
+## Reaching it from your phone (and the security trade-off)
+
+By default Findo only accepts connections from this Mac. **Findo has no login.**
+Anyone who can connect can search every connected share and download its files
+with the NAS credentials you gave Findo, and the connection is plain HTTP. To
+use it from a phone or another computer, set `HTTP_ADDR=:8080` in
+`~/Library/Application Support/Findo/.env` and re-run the install script, but
+only on a network you trust (not shared Wi-Fi, not port-forwarded). The server
+logs a warning when it listens beyond this Mac.
+
+Even on your network, Findo refuses requests whose `Host` isn't a name it's meant
+to be reached by (localhost, IP addresses, single-word names, `*.local`, `*.lan`,
+this Mac's hostname), and refuses state-changing requests from other web origins.
+That stops a malicious web page in your browser from using your Findo, but it is
+not a login. If you reach Findo by another name (a Tailscale name, a reverse
+proxy), list it in `.env`:
+
+```
+FINDO_ALLOWED_HOSTS=findo.tail1234.ts.net,findo.example.com
+```
 
 ## Checking on it
 
