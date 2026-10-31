@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"math/rand"
 	"os"
@@ -413,4 +414,70 @@ func archiveWithIDs(msgs ...idMsg) []byte {
 		out = append(out, m.msg.payload...)
 	}
 	return out
+}
+
+func TestNumbersDamagedFirstPartDoesNotCostTheOthers(t *testing.T) {
+	cells := iwaOf(dataList(iwStringLst, strField(3, "still found")))
+	data := zipOf(t,
+		"Index/Document.iwa", string([]byte{1, 0, 0, 0}), // not a chunk
+		"Index/Tables/DataList.iwa", string(cells),
+	)
+	got, err := extractBytes("numbers", data, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "still found\n" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestPagesJoinsRepeatedTextField(t *testing.T) {
+	p := append(strField(3, "first piece"), strField(3, "second piece")...)
+	got, err := extractBytes("pages", numbersZip(t, iwaOf(iwMsg{iwText, p})), 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "first piece\nsecond piece\n" {
+		t.Errorf("got %q", got)
+	}
+}
+
+// A show this reader can't follow only costs the slide order.
+func TestKeynoteSurvivesUnreadableShow(t *testing.T) {
+	// A fixed32 field (wire type 5) cut short: eachField rejects it.
+	badShow := iwMsg{iwShow, []byte{0x1d, 0x01}}
+	doc := archiveWithIDs(idMsg{900, badShow})
+	slide := archiveWithIDs(
+		idMsg{10, iwMsg{iwSlide, nil}},
+		idMsg{11, iwMsg{iwText, strField(3, "slide text")}},
+	)
+	data := zipOf(t,
+		"Index/Document.iwa", string(chunkOf(snappy.Encode(nil, doc))),
+		"Index/Slide.iwa", string(chunkOf(snappy.Encode(nil, slide))),
+	)
+	got, err := extractBytes("key", data, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "slide text\n" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestKeynoteHonorsTextCap(t *testing.T) {
+	var parts []string
+	for i := 0; i < 20; i++ {
+		slide := archiveWithIDs(idMsg{uint64(10 + i), iwMsg{iwText, strField(3, strings.Repeat("x", 100))}})
+		parts = append(parts, fmt.Sprintf("Index/Slide-%02d.iwa", i), string(chunkOf(snappy.Encode(nil, slide))))
+	}
+	doc := archiveWithIDs()
+	parts = append(parts, "Index/Document.iwa", string(chunkOf(snappy.Encode(nil, doc))))
+	data := zipOf(t, parts...)
+	got, err := extractBytes("key", data, 250)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) > 250 {
+		t.Errorf("len = %d, want ≤ 250", len(got))
+	}
 }

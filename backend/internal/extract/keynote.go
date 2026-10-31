@@ -28,10 +28,8 @@ func extractKeynote(_ context.Context, r io.ReaderAt, size, maxText int64) (stri
 	if err != nil {
 		return "", err
 	}
-	order, err := slideOrder(data)
-	if err != nil {
-		return "", err
-	}
+	// A show this reader can't follow only costs the slide order.
+	order, _ := slideOrder(data)
 
 	var files []*zip.File
 	for _, f := range zr.File {
@@ -46,7 +44,11 @@ func extractKeynote(_ context.Context, r io.ReaderAt, size, maxText int64) (stri
 		text, notes []string
 	}
 	var slides []slide
+	var collected int64 // text bytes held, so a huge deck can't outgrow the cap
 	for _, f := range files {
+		if collected >= maxText {
+			break
+		}
 		s := slide{}
 		collect := func(id, typ uint64, payload []byte, _ func(string)) error {
 			switch typ {
@@ -69,6 +71,12 @@ func extractKeynote(_ context.Context, r io.ReaderAt, size, maxText int64) (stri
 		}
 		if err := readMessages(f, collect, nil); err != nil {
 			continue // one damaged slide shouldn't cost the others
+		}
+		for _, l := range s.text {
+			collected += int64(len(l))
+		}
+		for _, l := range s.notes {
+			collected += int64(len(l))
 		}
 		slides = append(slides, s)
 	}

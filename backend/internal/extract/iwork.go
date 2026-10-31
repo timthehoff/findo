@@ -132,16 +132,19 @@ func extractIWork(r io.ReaderAt, size, maxText int64, app string, handle message
 	parts := append([]*zip.File{doc}, tableParts(zr)...)
 
 	out := &sink{max: maxText}
+	var firstErr error
 	for _, f := range parts {
 		if out.full() {
 			break
 		}
-		if err := readMessages(f, handle, lineEmitter(out)); err != nil {
-			// One damaged part shouldn't cost the text of the others.
-			if out.b.Len() == 0 {
-				return "", fmt.Errorf("%s: %w", f.Name, err)
-			}
+		// One damaged part shouldn't cost the text of the others, even
+		// when it is the first one read.
+		if err := readMessages(f, handle, lineEmitter(out)); err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("%s: %w", f.Name, err)
 		}
+	}
+	if out.b.Len() == 0 && firstErr != nil {
+		return "", firstErr
 	}
 	return out.text(), nil
 }
@@ -298,13 +301,17 @@ func trimmed(emit func(string)) func(string) {
 // text box, footnote or note). U+FFFC marks where an image or table sits in
 // the text, and control bytes mark attachments such as footnotes.
 func storageLines(payload []byte) (kind uint64, lines []string, err error) {
+	// text is a repeated field; join the pieces.
 	var text []byte
 	err = eachField(payload, func(num protowire.Number, x uint64, v []byte) error {
 		switch num {
 		case 1:
 			kind = x
 		case 3:
-			text = v
+			if text != nil {
+				text = append(text, '\n')
+			}
+			text = append(text, v...)
 		}
 		return nil
 	})
