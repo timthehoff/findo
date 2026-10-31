@@ -16,7 +16,7 @@ import (
 	"google.golang.org/protobuf/encoding/protowire"
 )
 
-// Numbers and Pages (Keynote later) are zips of .iwa files: Snappy blocks
+// Numbers, Pages and Keynote are zips of .iwa files: Snappy blocks
 // in Apple's own framing, holding length-prefixed protobuf messages with no
 // published schema. Rather than decode whole documents, this reads only the
 // few message types that carry user text, at fixed field numbers, so
@@ -44,16 +44,24 @@ const (
 	iwDataList  = 6005 // TST.TableDataList: list_type = 1, entries = 3
 	iwStringLst = 1    // TableDataList.ListType.STRING
 	iwHeader    = 1    // TSWP.StorageArchive.kind of headers and footers
+	iwNotes     = 4    // TSWP.StorageArchive.kind of Keynote speaker notes
+	iwSlide     = 5    // KN.SlideArchive
+	iwShow      = 2    // KN.ShowArchive: slide_tree = 3, a list of slide nodes
+	iwSlideNode = 4    // KN.SlideNodeArchive: slide = 2
 )
 
 var (
 	iwaDataListRe = regexp.MustCompile(`^Index/Tables/DataList[^/]*\.iwa$`)
 	// Pages numbers its calculation engine part (CalculationEngine-123.iwa).
 	iwaCalcRe = regexp.MustCompile(`^Index/CalculationEngine[^/]*\.iwa$`)
+	// A Keynote deck's slides; the theme's TemplateSlide-*.iwa layouts only
+	// hold placeholder prompts and don't match.
+	iwaSlideRe = regexp.MustCompile(`^Index/Slide[^/]*\.iwa$`)
 )
 
-// messageFunc emits the user text in one message payload of the given type.
-type messageFunc func(typ uint64, payload []byte, emit func(string)) error
+// messageFunc emits the user text in one message payload of the given object
+// id and type.
+type messageFunc func(id, typ uint64, payload []byte, emit func(string)) error
 
 // extractNumbers reads sheet names, table titles, then the text cells. Cells
 // holding only numbers, dates or formulas have no text and add nothing, the
@@ -69,19 +77,9 @@ func extractPages(_ context.Context, r io.ReaderAt, size, maxText int64) (string
 	return extractIWork(r, size, maxText, "Pages", pagesMessage)
 }
 
-// extractIWork opens only the parts that hold text: Document.iwa, the
-// calculation engine (table titles) and the table string lists, in that
-// order. Tile, style and metadata parts, and media in Data/, are never read.
-func extractIWork(r io.ReaderAt, size, maxText int64, app string, handle messageFunc) (string, error) {
-	zr, err := openPackage(r, size)
-	if err != nil {
-		return "", err
-	}
-	doc := findPart(zr, "Index/Document.iwa")
-	if doc == nil {
-		return "", fmt.Errorf("not a %s file: it has no Index/Document.iwa", app)
-	}
-
+// tableParts returns the parts holding table titles (the calculation engine)
+// and table string lists, in name order.
+func tableParts(zr *zip.Reader) []*zip.File {
 	var calc, lists []*zip.File
 	for _, f := range zr.File {
 		switch {
@@ -96,28 +94,53 @@ func extractIWork(r io.ReaderAt, size, maxText int64, app string, handle message
 	}
 	byName(calc)
 	byName(lists)
-	parts := append(append([]*zip.File{doc}, calc...), lists...)
+	return append(calc, lists...)
+}
 
-	out := &sink{max: maxText}
-	emit := func(s string) {
+// lineEmitter writes each non-empty valid string to out on its own line.
+func lineEmitter(out *sink) func(string) {
+	return func(s string) {
 		if s != "" && utf8.ValidString(s) {
 			out.write(s)
 			out.write("\n")
 		}
 	}
+}
+
+// readMessages decodes one .iwa part and hands its messages to handle.
+func readMessages(f *zip.File, handle messageFunc, emit func(string)) error {
+	data, err := readIWA(f)
+	if err != nil {
+		return err
+	}
+	return walkArchive(data, handle, emit)
+}
+
+// extractIWork opens only the parts that hold text: Document.iwa, the
+// calculation engine (table titles) and the table string lists, in that
+// order. Tile, style and metadata parts, and media in Data/, are never read.
+func extractIWork(r io.ReaderAt, size, maxText int64, app string, handle messageFunc) (string, error) {
+	zr, err := openPackage(r, size)
+	if err != nil {
+		return "", err
+	}
+	doc := findPart(zr, "Index/Document.iwa")
+	if doc == nil {
+		return "", fmt.Errorf("not a %s file: it has no Index/Document.iwa", app)
+	}
+
+	parts := append([]*zip.File{doc}, tableParts(zr)...)
+
+	out := &sink{max: maxText}
 	for _, f := range parts {
 		if out.full() {
 			break
 		}
-		data, err := readIWA(f)
-		if err != nil {
+		if err := readMessages(f, handle, lineEmitter(out)); err != nil {
+			// One damaged part shouldn't cost the text of the others.
 			if out.b.Len() == 0 {
 				return "", fmt.Errorf("%s: %w", f.Name, err)
 			}
-			break
-		}
-		if err := walkArchive(data, handle, emit); err != nil && out.b.Len() == 0 {
-			return "", fmt.Errorf("%s: %w", f.Name, err)
 		}
 	}
 	return out.text(), nil
@@ -180,6 +203,14 @@ func walkArchive(b []byte, handle messageFunc, emit func(string)) error {
 		info := b[k : k+int(n)]
 		b = b[k+int(n):]
 
+		var id uint64
+		_ = eachField(info, func(num protowire.Number, x uint64, _ []byte) error {
+			if num == 1 {
+				id = x
+			}
+			return nil
+		})
+
 		// ArchiveInfo.message_infos (field 2) each give a payload's type
 		// (field 1) and byte length (field 3); payloads follow back to back.
 		err := eachField(info, func(num protowire.Number, _ uint64, v []byte) error {
@@ -203,7 +234,7 @@ func walkArchive(b []byte, handle messageFunc, emit func(string)) error {
 			}
 			payload := b[:length]
 			b = b[length:]
-			return handle(typ, payload, emit)
+			return handle(id, typ, payload, emit)
 		})
 		if err != nil {
 			return err
@@ -222,7 +253,7 @@ func stringField(payload []byte, num protowire.Number, emit func(string)) error 
 	})
 }
 
-func numbersMessage(typ uint64, payload []byte, emit func(string)) error {
+func numbersMessage(_, typ uint64, payload []byte, emit func(string)) error {
 	switch typ {
 	case iwSheet:
 		return stringField(payload, 1, emit)
@@ -234,12 +265,16 @@ func numbersMessage(typ uint64, payload []byte, emit func(string)) error {
 	return nil
 }
 
-func pagesMessage(typ uint64, payload []byte, emit func(string)) error {
+func pagesMessage(_, typ uint64, payload []byte, emit func(string)) error {
 	switch typ {
 	case iwText:
-		return storageText(payload, emit)
+		kind, lines, err := storageLines(payload)
+		if kind != iwHeader {
+			emitAll(emit, lines)
+		}
+		return err
 	case iwComment:
-		return stringField(payload, 1, emit)
+		return stringField(payload, 1, trimmed(emit))
 	case iwTable:
 		return stringField(payload, 8, emit)
 	case iwDataList:
@@ -248,13 +283,23 @@ func pagesMessage(typ uint64, payload []byte, emit func(string)) error {
 	return nil
 }
 
-// storageText emits the lines of a text storage (body, text box, footnote),
-// skipping header and footer storages. U+FFFC marks where an image or table
-// sits in the text, and control bytes mark attachments such as footnotes.
-func storageText(payload []byte, emit func(string)) error {
-	var kind uint64
+func emitAll(emit func(string), lines []string) {
+	for _, l := range lines {
+		emit(l)
+	}
+}
+
+// trimmed drops the stray spaces comments and cells can carry.
+func trimmed(emit func(string)) func(string) {
+	return func(s string) { emit(strings.TrimSpace(s)) }
+}
+
+// storageLines returns a text storage's kind and its non-blank lines (body,
+// text box, footnote or note). U+FFFC marks where an image or table sits in
+// the text, and control bytes mark attachments such as footnotes.
+func storageLines(payload []byte) (kind uint64, lines []string, err error) {
 	var text []byte
-	if err := eachField(payload, func(num protowire.Number, x uint64, v []byte) error {
+	err = eachField(payload, func(num protowire.Number, x uint64, v []byte) error {
 		switch num {
 		case 1:
 			kind = x
@@ -262,17 +307,17 @@ func storageText(payload []byte, emit func(string)) error {
 			text = v
 		}
 		return nil
-	}); err != nil {
-		return err
-	}
-	if kind == iwHeader || len(text) == 0 || !utf8.Valid(text) {
-		return nil
+	})
+	if err != nil || len(text) == 0 || !utf8.Valid(text) {
+		return kind, nil, err
 	}
 	clean := strings.ReplaceAll(stripControls(string(text)), "\uFFFC", "")
 	for _, line := range strings.Split(clean, "\n") {
-		emit(strings.TrimSpace(line))
+		if line = strings.TrimSpace(line); line != "" {
+			lines = append(lines, line)
+		}
 	}
-	return nil
+	return kind, lines, nil
 }
 
 func dataListText(payload []byte, emit func(string)) error {

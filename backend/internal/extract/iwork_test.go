@@ -215,6 +215,7 @@ func FuzzNumbersText(f *testing.F) {
 	f.Fuzz(func(t *testing.T, b []byte) {
 		_ = walkArchive(b, pagesMessage, func(string) {})
 		_ = walkArchive(b, numbersMessage, func(string) {})
+		_, _ = slideOrder(b)
 	})
 }
 
@@ -300,4 +301,116 @@ func TestNumbersIgnoresPagesMessages(t *testing.T) {
 	if got != "Sheet\n" {
 		t.Errorf("got %q", got)
 	}
+}
+
+func TestKeynoteFixture(t *testing.T) {
+	data, err := os.ReadFile("../../testdata/seed/iwork/FindoPresentation.key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := extractBytes("key", data, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("extracted:\n%s", got)
+
+	// Presentation order, each slide's text before its notes, then tables.
+	// Within a slide the order is the file's, so only the groups are ordered.
+	groups := [][]string{
+		{"Halloween in America", "Jane Doe", "Ghost Towns"},
+		{"Requirements", "Jack o’ Lanterns", "Candy", "Costumes", "Monochrome"},
+		{"All the good stuff"},
+		{"Moods", "Spooooky"},
+		{"Table 1", "Spider", "Grid"},
+	}
+	prevEnd := 0
+	for _, g := range groups {
+		end := prevEnd
+		for _, w := range g {
+			i := strings.Index(got, w)
+			switch {
+			case i < 0:
+				t.Errorf("missing %q", w)
+			case i < prevEnd:
+				t.Errorf("%q comes before the previous group", w)
+			default:
+				end = max(end, i)
+			}
+		}
+		prevEnd = end
+	}
+	// Template placeholders, chart sample data and shape names are not text.
+	for _, not := range []string{
+		"Slide Title", "Body Level", "Presentation Title", "Section Title",
+		"Region 1", "April", "Category Axis", "Parallelogram", "￼",
+	} {
+		if strings.Contains(got, not) {
+			t.Errorf("must not contain %q", not)
+		}
+	}
+}
+
+// Slide order comes from the show in Document.iwa, not from file names.
+func TestKeynoteFollowsShowOrderAndSeparatesNotes(t *testing.T) {
+	ref := func(id uint64) []byte { return varField(1, id) }
+	node := func(slide uint64) []byte {
+		return protowire.AppendBytes(protowire.AppendTag(nil, 2, protowire.BytesType), ref(slide))
+	}
+	entry := func(nodeID uint64) []byte {
+		return protowire.AppendBytes(protowire.AppendTag(nil, 3, protowire.BytesType),
+			protowire.AppendBytes(protowire.AppendTag(nil, 2, protowire.BytesType), ref(nodeID)))
+	}
+	// Presentation order: slide 20 (file "Slide-b"), then slide 10 ("Slide-a").
+	show := iwMsg{iwShow, append(entry(101), entry(102)...)}
+	doc := archiveWithIDs(
+		idMsg{900, show},
+		idMsg{101, iwMsg{iwSlideNode, node(20)}},
+		idMsg{102, iwMsg{iwSlideNode, node(10)}},
+	)
+	slideA := archiveWithIDs(
+		idMsg{10, iwMsg{iwSlide, nil}},
+		idMsg{11, iwMsg{iwText, strField(3, "second slide")}},
+	)
+	slideB := archiveWithIDs(
+		idMsg{20, iwMsg{iwSlide, nil}},
+		idMsg{21, iwMsg{iwText, append(varField(1, iwNotes), strField(3, "notes of first")...)}},
+		idMsg{22, iwMsg{iwText, strField(3, "first slide\n￼")}},
+	)
+	template := iwaOf(iwMsg{iwText, strField(3, "Slide Title")})
+	data := zipOf(t,
+		"Index/Document.iwa", string(chunkOf(snappy.Encode(nil, doc))),
+		"Index/Slide-a.iwa", string(chunkOf(snappy.Encode(nil, slideA))),
+		"Index/Slide-b.iwa", string(chunkOf(snappy.Encode(nil, slideB))),
+		"Index/TemplateSlide-1.iwa", string(template),
+	)
+	got, err := extractBytes("key", data, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "first slide\nnotes of first\nsecond slide\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+type idMsg struct {
+	id  uint64
+	msg iwMsg
+}
+
+// archiveWithIDs is archiveOf with an explicit object id per message.
+func archiveWithIDs(msgs ...idMsg) []byte {
+	var out []byte
+	for _, m := range msgs {
+		mi := protowire.AppendTag(nil, 1, protowire.VarintType)
+		mi = protowire.AppendVarint(mi, m.msg.typ)
+		mi = protowire.AppendTag(mi, 3, protowire.VarintType)
+		mi = protowire.AppendVarint(mi, uint64(len(m.msg.payload)))
+		info := protowire.AppendTag(nil, 1, protowire.VarintType)
+		info = protowire.AppendVarint(info, m.id)
+		info = protowire.AppendTag(info, 2, protowire.BytesType)
+		info = protowire.AppendBytes(info, mi)
+		out = protowire.AppendBytes(out, info)
+		out = append(out, m.msg.payload...)
+	}
+	return out
 }

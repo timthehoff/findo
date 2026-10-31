@@ -51,6 +51,7 @@ const (
 	ExtPptx    = "pptx"    // PowerPoint (OOXML)
 	ExtNumbers = "numbers" // Apple Numbers
 	ExtPages   = "pages"   // Apple Pages
+	ExtKeynote = "key"     // Apple Keynote
 	ExtPDF     = "pdf"     // PDF text layer
 )
 
@@ -213,6 +214,7 @@ func init() {
 	setExtractor(ExtPptx, "pptx", "pptm", "ppsx", "potx")
 	setExtractor(ExtNumbers, "numbers")
 	setExtractor(ExtPages, "pages")
+	setExtractor(ExtKeynote, "key")
 	setExtractor(ExtText, append([]string{"txt", "md", "mdx", "rst", "adoc", "org", "log", "json", "xml", "csv", "tsv"}, codeExts...)...)
 
 	// Markup that can run script on this origin: known, never inline.

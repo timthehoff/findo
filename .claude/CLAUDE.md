@@ -196,8 +196,8 @@ comment for the `curl` command that registers it as a volume).
   the zip reader's many tiny reads into 256 KiB reads, since each read is a
   round trip to the NAS. A password-protected file (an OLE file with an
   OOXML name) is recorded as `skipped: encrypted`; legacy `.doc/.xls/.ppt`
-  and Keynote have no extractor.
-  `numbers` and `pages` (`extract/iwork.go`) read Apple's iWork zips: `.iwa`
+  have no extractor.
+  `numbers`, `pages` and `key` (`extract/iwork.go`, `keynote.go`) read Apple's iWork zips: `.iwa`
   files are Snappy blocks in Apple's own framing (not `snappy.NewReader`'s)
   holding length-prefixed protobuf with no published schema. Only
   `Index/Document.iwa`, `Index/CalculationEngine*.iwa` (table titles; Pages
@@ -211,12 +211,19 @@ comment for the `curl` command that registers it as a volume).
   yields text storages (2001 field 3: body, text boxes, footnotes; a
   `kind` of 1 is a header or footer and is skipped, like Word's), comments
   (3056 field 1), then the same table titles and cells; U+FFFC attachment
-  markers and blank lines are dropped. Bounds: a chunk's declared Snappy size
-  is checked before it is allocated (1 MiB), one `.iwa` decodes to at most
-  64 MiB, and message lengths must fit the stream. Fixtures in
-  `testdata/seed/iwork/` (`FindoSpreadsheet.numbers`, `FindoDocument.pages`)
-  were made in the real apps. Keynote keeps its text in other message types
-  and needs its own fixture first.
+  markers and blank lines are dropped. Keynote opens `Index/Slide*.iwa`
+  (never the theme's `TemplateSlide-*.iwa`, which only hold placeholder
+  prompts) and yields each slide's text and comments followed by its speaker
+  notes (storage `kind` 4), in presentation order: the show in
+  `Document.iwa` (type 2 field 3) lists slide nodes (type 4 field 2) that
+  point at slide object ids, since file names don't say. Table text follows
+  the slides. Chart labels are not indexed (default sample data until
+  edited, and a nested layout this reader doesn't walk). Bounds: a chunk's
+  declared Snappy size is checked before it is allocated (1 MiB), one `.iwa`
+  decodes to at most 64 MiB, and message lengths must fit the stream.
+  Fixtures in `testdata/seed/iwork/` (`FindoSpreadsheet.numbers`,
+  `FindoDocument.pages`, `FindoPresentation.key`) were made in the real
+  apps.
   `pdf` uses PDFium (Chrome's engine) compiled to WebAssembly and run by
   wazero via `go-pdfium` (`extract/pdf.go`): still one pure-Go binary, no
   cgo, but about +10 MB and ~300 MB resident while loaded, so the engine
