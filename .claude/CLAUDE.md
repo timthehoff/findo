@@ -195,8 +195,23 @@ comment for the `curl` command that registers it as a volume).
   text at 32 MiB, and output at the text cap; a `blockReaderAt` cache turns
   the zip reader's many tiny reads into 256 KiB reads, since each read is a
   round trip to the NAS. A password-protected file (an OLE file with an
-  OOXML name) is recorded as `skipped: encrypted`; legacy `.doc/.xls/.ppt`
-  and iWork have no extractor.
+  OOXML name) is recorded as `skipped: encrypted`; legacy `.doc/.xls/.ppt`,
+  Pages and Keynote have no extractor.
+  `numbers` (`extract/iwork.go`) reads Apple Numbers: a zip of `.iwa` files
+  (Snappy blocks in Apple's own framing, not `snappy.NewReader`'s, holding
+  length-prefixed protobuf with no published schema). It opens only
+  `Index/Document.iwa` (sheet names, message type 2 field 1),
+  `Index/CalculationEngine.iwa` (table titles, type 6001 field 8) and
+  `Index/Tables/DataList*.iwa` (text cells: type 6005 string lists, entries
+  with a refcount above 0, field 3), in that order. It reads top-level fields
+  at those fixed numbers only, never walking nested messages, so styles,
+  fonts and ids stay out of the index; media in `Data/` and the previews are
+  never read. Bounds: a chunk's declared Snappy size is checked before it is
+  allocated (1 MiB), one `.iwa` decodes to at most 64 MiB, and message lengths
+  must fit the stream. Like Excel, only text cells are searchable. Fixture:
+  `testdata/seed/iwork/FindoSpreadsheet.numbers` (made in Numbers). Pages and
+  Keynote keep their text in other message types (`TSWP.StorageArchive`) and
+  need their own fixtures first.
   `pdf` uses PDFium (Chrome's engine) compiled to WebAssembly and run by
   wazero via `go-pdfium` (`extract/pdf.go`): still one pure-Go binary, no
   cgo, but about +10 MB and ~300 MB resident while loaded, so the engine

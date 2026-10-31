@@ -3,10 +3,12 @@ module github.com/thoff/findo/backend
 go 1.26.9
 
 require (
+	github.com/golang/snappy v1.0.0
 	github.com/hirochachacha/go-smb2 v1.1.0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/klippa-app/go-pdfium v1.21.3
 	github.com/tetratelabs/wazero v1.12.0
+	google.golang.org/protobuf v1.36.11
 )
 
 require (
