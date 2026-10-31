@@ -6,7 +6,9 @@
 #   scripts/with-testdb.sh go test ./...
 #
 # Needs Postgres with pg_trgm: brew install postgresql@17 (macOS), or the
-# postgresql package (Linux, including GitHub's runners).
+# postgresql package (Linux, including GitHub's runners). Postgres refuses to
+# run as root, so when this script does (containers, cloud sandboxes) the
+# server runs as the postgres user, or nobody if there isn't one.
 set -eu
 
 if [ -n "${FINDO_TEST_DSN:-}" ]; then
@@ -30,10 +32,20 @@ find_bin() {
 INITDB=$(find_bin initdb)
 PG_CTL=$(find_bin pg_ctl)
 
+pguser=""
+if [ "$(id -u)" = 0 ]; then
+  if id postgres >/dev/null 2>&1; then pguser=postgres; else pguser=nobody; fi
+fi
+# Runs a Postgres command as the server's user (just runs it when not root).
+as_pg() {
+  if [ -n "$pguser" ]; then runuser -u "$pguser" -- "$@"; else "$@"; fi
+}
+
 # Unix socket paths are limited to ~100 bytes on macOS, so keep this short.
 dir=$(mktemp -d /tmp/findo-pg.XXXXXX)
+[ -z "$pguser" ] || chown "$pguser" "$dir"
 cleanup() {
-  "$PG_CTL" -D "$dir/data" -m immediate stop >/dev/null 2>&1 || true
+  as_pg "$PG_CTL" -D "$dir/data" -m immediate stop >/dev/null 2>&1 || true
   rm -rf "$dir"
 }
 trap cleanup EXIT INT TERM
@@ -44,14 +56,15 @@ if locale -a 2>/dev/null | grep -qi '^en_US\.utf-\?8$'; then
 else
   export LC_ALL=C.UTF-8
 fi
-"$INITDB" -D "$dir/data" -E UTF8 -A trust >/dev/null
-"$PG_CTL" -D "$dir/data" -l "$dir/log" -w \
+as_pg "$INITDB" -D "$dir/data" -E UTF8 -A trust >/dev/null
+as_pg "$PG_CTL" -D "$dir/data" -l "$dir/log" -w \
   -o "-c listen_addresses='' -k $dir -c fsync=off -c synchronous_commit=off -c full_page_writes=off" \
   start >/dev/null || { cat "$dir/log" >&2; exit 1; }
 
 PSQL=$(dirname "$PG_CTL")/psql
-"$PSQL" -h "$dir" -d postgres -qc "CREATE DATABASE findo_test"
-"$PSQL" -h "$dir" -d findo_test -qc "CREATE EXTENSION pg_trgm"
+as_pg "$PSQL" -h "$dir" -d postgres -qc "CREATE DATABASE findo_test"
+as_pg "$PSQL" -h "$dir" -d findo_test -qc "CREATE EXTENSION pg_trgm"
 
-export FINDO_TEST_DSN="host=$dir dbname=findo_test"
+# The cluster's superuser is whoever ran initdb, which as root isn't "root".
+export FINDO_TEST_DSN="host=$dir dbname=findo_test${pguser:+ user=$pguser}"
 "$@"
