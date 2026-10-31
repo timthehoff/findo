@@ -32,6 +32,7 @@ var extractors = map[string]Func{
 	filetype.ExtXlsx:    extractXlsx,
 	filetype.ExtPptx:    extractPptx,
 	filetype.ExtNumbers: extractNumbers,
+	filetype.ExtPages:   extractPages,
 	filetype.ExtPDF:     extractPDF,
 }
 

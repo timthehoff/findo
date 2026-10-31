@@ -213,6 +213,91 @@ func FuzzNumbersText(f *testing.F) {
 	f.Add(archiveOf(iwMsg{iwSheet, strField(1, "Sheet")}))
 	f.Add(archiveOf(dataList(iwStringLst, strField(3, "cell"))))
 	f.Fuzz(func(t *testing.T, b []byte) {
-		_ = numbersText(b, func(string) {})
+		_ = walkArchive(b, pagesMessage, func(string) {})
+		_ = walkArchive(b, numbersMessage, func(string) {})
 	})
+}
+
+func TestPagesFixture(t *testing.T) {
+	data, err := os.ReadFile("../../testdata/seed/iwork/FindoDocument.pages")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := extractBytes("pages", data, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("extracted:\n%s", got)
+	for _, want := range []string{
+		"Interesting Data",                      // heading
+		"I’m a little teapot, short and stout.", // body
+		"Here is my handle, here is my spout.",
+		"Tip", "Me", "Over", // bulleted list
+		"They’re a-sea!",                // text before the footnote
+		"Not actually",                  // footnote
+		"Floating in the deep blue sea", // text box
+		"This needs more elaboration",   // comment on the text box
+		"And", "Pour", "Out",            // table cells
+		"Table 1", // table title
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	for _, not := range []string{"BaseballCap", "Footsies", "Tim Hoff", "￼", "Blank"} {
+		if strings.Contains(got, not) {
+			t.Errorf("must not contain %q", not)
+		}
+	}
+	if strings.Contains(got, "\n\n") {
+		t.Errorf("blank lines should be dropped: %q", got)
+	}
+}
+
+func TestPagesStorageKindsAndAttachments(t *testing.T) {
+	storage := func(kind uint64, text string) iwMsg {
+		p := varField(1, kind)
+		return iwMsg{iwText, append(p, strField(3, text)...)}
+	}
+	doc := iwaOf(
+		storage(0, "Title￼\n\n  body line\x05 \n"),
+		storage(1, "header or footer"),
+		storage(2, "￼ footnote"),
+		iwMsg{iwText, strField(3, "text box")}, // no kind field
+		iwMsg{iwComment, strField(1, "a comment")},
+		iwMsg{iwSheet, strField(1, "not a Pages message")},
+	)
+	got, err := extractBytes("pages", numbersZip(t, doc), 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "Title\nbody line\nfootnote\ntext box\na comment\n"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestPagesReadsNumberedCalculationEngine(t *testing.T) {
+	calc := iwaOf(iwMsg{iwTable, strField(8, "Budget table")})
+	got, err := extractBytes("pages", numbersZip(t, iwaOf(iwMsg{iwText, strField(3, "body")}),
+		"Index/CalculationEngine-1732636.iwa", string(calc)), 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "body\nBudget table\n" {
+		t.Errorf("got %q", got)
+	}
+}
+
+// A Numbers file's text boxes are not indexed by the Numbers extractor, and
+// a Pages file's sheet names mean nothing: each app reads only its messages.
+func TestNumbersIgnoresPagesMessages(t *testing.T) {
+	doc := iwaOf(iwMsg{iwText, strField(3, "stray text")}, iwMsg{iwSheet, strField(1, "Sheet")})
+	got, err := extractBytes("numbers", numbersZip(t, doc), 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "Sheet\n" {
+		t.Errorf("got %q", got)
+	}
 }

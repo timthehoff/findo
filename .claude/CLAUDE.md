@@ -195,23 +195,28 @@ comment for the `curl` command that registers it as a volume).
   text at 32 MiB, and output at the text cap; a `blockReaderAt` cache turns
   the zip reader's many tiny reads into 256 KiB reads, since each read is a
   round trip to the NAS. A password-protected file (an OLE file with an
-  OOXML name) is recorded as `skipped: encrypted`; legacy `.doc/.xls/.ppt`,
-  Pages and Keynote have no extractor.
-  `numbers` (`extract/iwork.go`) reads Apple Numbers: a zip of `.iwa` files
-  (Snappy blocks in Apple's own framing, not `snappy.NewReader`'s, holding
-  length-prefixed protobuf with no published schema). It opens only
-  `Index/Document.iwa` (sheet names, message type 2 field 1),
-  `Index/CalculationEngine.iwa` (table titles, type 6001 field 8) and
-  `Index/Tables/DataList*.iwa` (text cells: type 6005 string lists, entries
-  with a refcount above 0, field 3), in that order. It reads top-level fields
-  at those fixed numbers only, never walking nested messages, so styles,
-  fonts and ids stay out of the index; media in `Data/` and the previews are
-  never read. Bounds: a chunk's declared Snappy size is checked before it is
-  allocated (1 MiB), one `.iwa` decodes to at most 64 MiB, and message lengths
-  must fit the stream. Like Excel, only text cells are searchable. Fixture:
-  `testdata/seed/iwork/FindoSpreadsheet.numbers` (made in Numbers). Pages and
-  Keynote keep their text in other message types (`TSWP.StorageArchive`) and
-  need their own fixtures first.
+  OOXML name) is recorded as `skipped: encrypted`; legacy `.doc/.xls/.ppt`
+  and Keynote have no extractor.
+  `numbers` and `pages` (`extract/iwork.go`) read Apple's iWork zips: `.iwa`
+  files are Snappy blocks in Apple's own framing (not `snappy.NewReader`'s)
+  holding length-prefixed protobuf with no published schema. Only
+  `Index/Document.iwa`, `Index/CalculationEngine*.iwa` (table titles; Pages
+  suffixes the name) and `Index/Tables/DataList*.iwa` are opened, in that
+  order, and only top-level fields of known message types at fixed numbers
+  are read (never nested messages), so styles, fonts, ids, comment authors
+  and template names stay out of the index. Media in `Data/` and the previews
+  are never read. Numbers yields sheet names (type 2 field 1), table titles
+  (6001 field 8) and text cells (6005 string lists, entries with a refcount
+  above 0, field 3); like Excel, numbers and dates aren't searchable. Pages
+  yields text storages (2001 field 3: body, text boxes, footnotes; a
+  `kind` of 1 is a header or footer and is skipped, like Word's), comments
+  (3056 field 1), then the same table titles and cells; U+FFFC attachment
+  markers and blank lines are dropped. Bounds: a chunk's declared Snappy size
+  is checked before it is allocated (1 MiB), one `.iwa` decodes to at most
+  64 MiB, and message lengths must fit the stream. Fixtures in
+  `testdata/seed/iwork/` (`FindoSpreadsheet.numbers`, `FindoDocument.pages`)
+  were made in the real apps. Keynote keeps its text in other message types
+  and needs its own fixture first.
   `pdf` uses PDFium (Chrome's engine) compiled to WebAssembly and run by
   wazero via `go-pdfium` (`extract/pdf.go`): still one pure-Go binary, no
   cgo, but about +10 MB and ~300 MB resident while loaded, so the engine
