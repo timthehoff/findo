@@ -98,6 +98,9 @@ func dial(host, share, user, pass string) (net.Conn, *smb2.Session, *smb2.Share,
 	return conn, sess, fs, nil
 }
 
+// dialFunc is dial, swappable so tests can exercise reconnect without a server.
+var dialFunc = dial
+
 // Connect dials the NAS and mounts the configured share. Safe to call again
 // after Close to reconnect.
 func (c *Client) Connect() error {
@@ -140,15 +143,61 @@ func (c *Client) closeLocked() {
 	}
 }
 
-// Ping verifies the share is reachable by statting its root.
-func (c *Client) Ping() error {
+// do runs op against the mounted share. If op fails with a transport error
+// the session is dead (a Wi-Fi/route change or sleep leaves the socket
+// unusable, and nothing else would ever replace it), so it redials once and
+// retries. A failed redial keeps the old handle so the next call tries again.
+func (c *Client) do(op func(fs *smb2.Share) error) error {
+	c.mu.Lock()
+	fs := c.fs
+	c.mu.Unlock()
+	if fs == nil {
+		return fmt.Errorf("not connected")
+	}
+
+	err := op(fs)
+	var te *smb2.TransportError
+	if !errors.As(err, &te) {
+		return err
+	}
+
+	fs, rerr := c.reconnect(fs)
+	if rerr != nil {
+		return fmt.Errorf("%w (reconnect failed: %v)", err, rerr)
+	}
+	return op(fs)
+}
+
+// reconnect replaces the session that produced dead. Concurrent callers that
+// failed on the same session (a Walk has many in flight) redial only once:
+// later ones see c.fs has already changed and just use the new share.
+func (c *Client) reconnect(dead *smb2.Share) (*smb2.Share, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.fs == nil {
-		return fmt.Errorf("not connected")
+		return nil, fmt.Errorf("not connected")
 	}
-	_, err := c.fs.Stat(".")
-	return err
+	if c.fs != dead {
+		return c.fs, nil
+	}
+
+	conn, sess, fs, err := dialFunc(c.host, c.share, c.user, c.pass)
+	if err != nil {
+		return nil, err
+	}
+	// The old conn is dead; closing it directly avoids Umount/Logoff
+	// round trips that would just fail.
+	c.conn.Close()
+	c.conn, c.sess, c.fs = conn, sess, fs
+	return fs, nil
+}
+
+// Ping verifies the share is reachable by statting its root.
+func (c *Client) Ping() error {
+	return c.do(func(fs *smb2.Share) error {
+		_, err := fs.Stat(".")
+		return err
+	})
 }
 
 // Entry describes one file or directory found while crawling.
@@ -164,14 +213,11 @@ type Entry struct {
 // it doesn't exist — e.g. a change-notify event for a file that was
 // already removed again by the time it's processed.
 func (c *Client) Stat(path string) (Entry, bool, error) {
-	c.mu.Lock()
-	fs := c.fs
-	c.mu.Unlock()
-	if fs == nil {
-		return Entry{}, false, fmt.Errorf("not connected")
-	}
-
-	info, err := fs.Stat(toSMBPath(path))
+	var info os.FileInfo
+	err := c.do(func(fs *smb2.Share) (err error) {
+		info, err = fs.Stat(toSMBPath(path))
+		return err
+	})
 	if err != nil {
 		if os.IsNotExist(err) {
 			return Entry{}, false, nil
@@ -200,12 +246,19 @@ func (c *Client) Stat(path string) (Entry, bool, error) {
 // finishes; a nil return means every directory was listed cleanly.
 func (c *Client) Walk(root string, fn func(Entry)) error {
 	c.mu.Lock()
-	fs := c.fs
+	connected := c.fs != nil
 	c.mu.Unlock()
-	if fs == nil {
+	if !connected {
 		return fmt.Errorf("not connected")
 	}
-	return errors.Join(walk(toSMBPath(root), fs.ReadDir, fn)...)
+	readDir := func(dir string) (infos []os.FileInfo, err error) {
+		err = c.do(func(fs *smb2.Share) (err error) {
+			infos, err = fs.ReadDir(dir)
+			return err
+		})
+		return infos, err
+	}
+	return errors.Join(walk(toSMBPath(root), readDir, fn)...)
 }
 
 // walk drives the actual traversal against a readDir function, kept
@@ -333,15 +386,12 @@ func (c *Client) Open(path string) (File, os.FileInfo, error) {
 	if !ValidPath(path) {
 		return nil, nil, fmt.Errorf("invalid path %q", path)
 	}
-	c.mu.Lock()
-	fs := c.fs
-	c.mu.Unlock()
-	if fs == nil {
-		return nil, nil, fmt.Errorf("not connected")
-	}
-
 	smbPath := toSMBPath(path)
-	f, err := fs.Open(smbPath)
+	var f *smb2.File
+	err := c.do(func(fs *smb2.Share) (err error) {
+		f, err = fs.Open(smbPath)
+		return err
+	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("open %q: %w", path, err)
 	}
