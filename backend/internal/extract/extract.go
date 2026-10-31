@@ -27,11 +27,14 @@ var (
 type Func func(ctx context.Context, r io.ReaderAt, size, maxText int64) (string, error)
 
 var extractors = map[string]Func{
-	filetype.ExtText: extractText,
-	filetype.ExtDocx: extractDocx,
-	filetype.ExtXlsx: extractXlsx,
-	filetype.ExtPptx: extractPptx,
-	filetype.ExtPDF:  extractPDF,
+	filetype.ExtText:    extractText,
+	filetype.ExtDocx:    extractDocx,
+	filetype.ExtXlsx:    extractXlsx,
+	filetype.ExtPptx:    extractPptx,
+	filetype.ExtNumbers: extractNumbers,
+	filetype.ExtPages:   extractPages,
+	filetype.ExtKeynote: extractKeynote,
+	filetype.ExtPDF:     extractPDF,
 }
 
 // Supported returns the lowercase extensions Extract can handle right now.

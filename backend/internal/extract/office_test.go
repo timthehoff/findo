@@ -271,7 +271,7 @@ func TestOfficeVariantExtensionsUseTheSameExtractors(t *testing.T) {
 			t.Errorf("Supported() is missing %s", e)
 		}
 	}
-	for _, e := range []string{"doc", "xls", "ppt", "pages", "numbers", "key"} {
+	for _, e := range []string{"doc", "xls", "ppt"} {
 		if supported[e] {
 			t.Errorf("%s must not be claimed (no extractor for it)", e)
 		}

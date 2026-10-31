@@ -45,11 +45,14 @@ type Info struct {
 
 // Extractor names (see internal/extract).
 const (
-	ExtText = "text" // plain text, markup, config and source code
-	ExtDocx = "docx" // Word (OOXML)
-	ExtXlsx = "xlsx" // Excel (OOXML)
-	ExtPptx = "pptx" // PowerPoint (OOXML)
-	ExtPDF  = "pdf"  // PDF text layer
+	ExtText    = "text"    // plain text, markup, config and source code
+	ExtDocx    = "docx"    // Word (OOXML)
+	ExtXlsx    = "xlsx"    // Excel (OOXML)
+	ExtPptx    = "pptx"    // PowerPoint (OOXML)
+	ExtNumbers = "numbers" // Apple Numbers
+	ExtPages   = "pages"   // Apple Pages
+	ExtKeynote = "key"     // Apple Keynote
+	ExtPDF     = "pdf"     // PDF text layer
 )
 
 const (
@@ -209,6 +212,9 @@ func init() {
 	setExtractor(ExtDocx, "docx", "docm", "dotx")
 	setExtractor(ExtXlsx, "xlsx", "xlsm", "xltx")
 	setExtractor(ExtPptx, "pptx", "pptm", "ppsx", "potx")
+	setExtractor(ExtNumbers, "numbers")
+	setExtractor(ExtPages, "pages")
+	setExtractor(ExtKeynote, "key")
 	setExtractor(ExtText, append([]string{"txt", "md", "mdx", "rst", "adoc", "org", "log", "json", "xml", "csv", "tsv"}, codeExts...)...)
 
 	// Markup that can run script on this origin: known, never inline.
