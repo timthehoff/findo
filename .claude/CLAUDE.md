@@ -62,7 +62,9 @@ back/forward, reloads and links work), and `volumes.html`
 (volume config, crawl/watch monitoring, a per-volume storage/largest-files
 breakdown), and `text.html` (a file's extracted text, opened from a search
 hit) — with an icon-only light/dark/system theme toggle, a clickable
-logo back to `/`, and toast notifications for action feedback. (`/search` and
+logo back to `/`, a `favicon.svg` (the brand 🐾 emoji, linked from every
+page; an SVG, so iOS home-screen pins still need a PNG `apple-touch-icon`
+later), and toast notifications for action feedback. (`/search` and
 `/volumes` are JSON API routes, so those pages can't live at the bare path —
 hence `/volumes.html`; `/search.html` 301s to `/`.)
 
@@ -289,7 +291,10 @@ comment for the `curl` command that registers it as a volume).
   which starts a throwaway cluster on a Unix socket in a temp dir and sets
   `FINDO_TEST_DSN`; each test then gets its own schema from `testdb.DSN(t)`.
   Plain `go test` without that variable **skips** database tests (with a
-  message) instead of failing. Requires `brew install postgresql@17`.
+  message) instead of failing. Requires `brew install postgresql@17` (or the
+  `postgresql` package on Linux). Postgres refuses to run as root, so when the
+  script is root (containers, the Claude cloud sandbox) it runs the server as
+  the `postgres` user (or `nobody`) and adds that user to the DSN.
 - Crawl strategy is mark-and-sweep reconciliation: rows are upserted (not
   blindly reinserted) and stamped with the crawl's `last_seen_run`; a final
   sweep deletes rows not stamped with the current run, i.e. anything no
