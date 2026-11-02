@@ -8,7 +8,7 @@ require (
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/klippa-app/go-pdfium v1.21.4
 	github.com/tetratelabs/wazero v1.12.0
-	google.golang.org/protobuf v1.36.11
+	google.golang.org/protobuf v1.36.12
 )
 
 require (
