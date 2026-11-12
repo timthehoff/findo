@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"strings"
 
@@ -19,6 +20,11 @@ type Config struct {
 	HTTPAddr    string
 	DatabaseURL string // Postgres connection string
 	MasterKey   []byte // decoded, KeySize bytes; encrypts volume passwords at rest
+	// PublicURL is the address people use to reach Findo (FINDO_PUBLIC_URL, e.g.
+	// https://findo.example.com). Passkeys are bound to its host, so it must be
+	// settled before anyone enrolls. It defaults to http://localhost on the
+	// listen port, which only works from this machine.
+	PublicURL *url.URL
 	// AllowedHosts are extra names (beyond local and LAN ones) the server may be
 	// addressed by, from FINDO_ALLOWED_HOSTS: a Tailscale name, a reverse proxy.
 	AllowedHosts []string
@@ -43,14 +49,58 @@ func Load(envPath string) (Config, error) {
 		return Config{}, fmt.Errorf("FINDO_MASTER_KEY: %w", err)
 	}
 
+	httpAddr := getEnvDefault("HTTP_ADDR", "127.0.0.1:8080")
+	publicURL, err := ParsePublicURL(os.Getenv("FINDO_PUBLIC_URL"), httpAddr)
+	if err != nil {
+		return Config{}, fmt.Errorf("FINDO_PUBLIC_URL: %w", err)
+	}
+
+	allowed := splitList(os.Getenv("FINDO_ALLOWED_HOSTS"))
+	// The public name is one Findo is meant to be reached by; no need to list it twice.
+	if publicURL.Hostname() != "localhost" {
+		allowed = append(allowed, publicURL.Hostname())
+	}
+
 	return Config{
-		HTTPAddr: getEnvDefault("HTTP_ADDR", "127.0.0.1:8080"),
+		HTTPAddr: httpAddr,
 		// Default: the local Postgres over its Unix socket, database "findo".
 		DatabaseURL: getEnvDefault("DATABASE_URL", "postgres:///findo"),
 		MasterKey:   key,
 
-		AllowedHosts: splitList(os.Getenv("FINDO_ALLOWED_HOSTS")),
+		PublicURL:    publicURL,
+		AllowedHosts: allowed,
 	}, nil
+}
+
+// ParsePublicURL validates FINDO_PUBLIC_URL: an http(s) origin with a host and
+// nothing else. Passkeys need a secure context, so plain http is accepted only
+// for localhost. An empty value gives http://localhost on httpAddr's port.
+func ParsePublicURL(raw, httpAddr string) (*url.URL, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		port := "8080"
+		if _, p, err := net.SplitHostPort(httpAddr); err == nil && p != "" {
+			port = p
+		}
+		return &url.URL{Scheme: "http", Host: net.JoinHostPort("localhost", port)}, nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return nil, err
+	}
+	if u.Scheme != "http" && u.Scheme != "https" || u.Hostname() == "" {
+		return nil, fmt.Errorf("must look like https://findo.example.com")
+	}
+	if (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" || u.User != nil {
+		return nil, fmt.Errorf("must be just a scheme, host and optional port, with no path")
+	}
+	if net.ParseIP(u.Hostname()) != nil {
+		return nil, fmt.Errorf("passkeys can't be bound to an IP address; use a host name")
+	}
+	if u.Scheme == "http" && u.Hostname() != "localhost" {
+		return nil, fmt.Errorf("passkeys need HTTPS (plain http works only for localhost); put a TLS proxy such as Caddy in front")
+	}
+	return &url.URL{Scheme: u.Scheme, Host: strings.ToLower(u.Host)}, nil
 }
 
 // splitList splits a comma-separated list, dropping blanks.

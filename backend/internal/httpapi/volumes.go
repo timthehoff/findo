@@ -3,13 +3,11 @@ package httpapi
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
 	"net/http"
 	"strings"
 	"time"
 
-	"github.com/thoff/findo/backend/internal/crypto"
 	"github.com/thoff/findo/backend/internal/index"
 )
 
@@ -81,8 +79,21 @@ func (s *Server) enrichVolume(v index.Volume) volumeStatus {
 	return vs
 }
 
+// otherVolume is all an administrator learns about someone else's volume: that
+// it exists, what it's called and who owns it. Not where it points, and never
+// its files.
+type otherVolume struct {
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	OwnerID   *int64 `json:"ownerId"`
+	OwnerName string `json:"ownerName,omitempty"`
+}
+
+// handleListVolumes lists the caller's volumes in full. An administrator also
+// gets "others": everyone else's volumes, by name and owner only.
 func (s *Server) handleListVolumes(w http.ResponseWriter, r *http.Request) {
-	vols, err := s.idx.ListVolumes()
+	p := principalFrom(r)
+	vols, err := s.idx.ListVolumesByOwner(p.UserID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -91,7 +102,44 @@ func (s *Server) handleListVolumes(w http.ResponseWriter, r *http.Request) {
 	for _, v := range vols {
 		out = append(out, s.enrichVolume(v))
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"volumes": out})
+	resp := map[string]interface{}{"volumes": out}
+
+	if p.IsAdmin() {
+		others, err := s.otherVolumes(p)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		resp["others"] = others
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) otherVolumes(p Principal) ([]otherVolume, error) {
+	all, err := s.idx.ListVolumes()
+	if err != nil {
+		return nil, err
+	}
+	users, err := s.idx.ListUsers()
+	if err != nil {
+		return nil, err
+	}
+	names := map[int64]string{}
+	for _, u := range users {
+		names[u.ID] = u.Username
+	}
+	others := []otherVolume{}
+	for _, v := range all {
+		if v.OwnerID != nil && *v.OwnerID == p.UserID {
+			continue
+		}
+		o := otherVolume{ID: v.ID, Name: v.Name, OwnerID: v.OwnerID}
+		if v.OwnerID != nil {
+			o.OwnerName = names[*v.OwnerID]
+		}
+		others = append(others, o)
+	}
+	return others, nil
 }
 
 // writeVolumeWriteError reports a failed volume create/update: a name clash is
@@ -115,12 +163,10 @@ func (s *Server) handleCreateVolume(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	passwordEnc, err := crypto.Encrypt(s.masterKey, []byte(in.Password))
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "encrypt password: "+err.Error())
-		return
-	}
-	vol, err := s.idx.CreateVolume(in.Name, in.Host, in.Share, in.Username, passwordEnc)
+	owner := principalFrom(r).UserID
+	vol, err := s.idx.CreateVolume(owner, in.Name, in.Host, in.Share, in.Username, func(volumeID int64) ([]byte, error) {
+		return sealPassword(s.masterKey, volumeID, &owner, in.Password)
+	})
 	if err != nil {
 		writeVolumeWriteError(w, err)
 		return
@@ -141,20 +187,8 @@ func (s *Server) handleCreateVolume(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUpdateVolume(w http.ResponseWriter, r *http.Request) {
-	id, err := parseVolumeID(r)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid volume id")
-		return
-	}
-	existing, ok, err := s.idx.GetVolume(id)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if !ok {
-		writeError(w, http.StatusNotFound, "volume not found")
-		return
-	}
+	existing := volumeFrom(r)
+	id := existing.ID
 
 	var in volumeInput
 	if !decodeJSON(w, r, &in) {
@@ -182,7 +216,7 @@ func (s *Server) handleUpdateVolume(w http.ResponseWriter, r *http.Request) {
 		u.Enabled = *in.Enabled
 	}
 	if in.Password != "" {
-		passwordEnc, err := crypto.Encrypt(s.masterKey, []byte(in.Password))
+		passwordEnc, err := sealPassword(s.masterKey, id, existing.OwnerID, in.Password)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "encrypt password: "+err.Error())
 			return
@@ -216,11 +250,7 @@ func (s *Server) handleUpdateVolume(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteVolume(w http.ResponseWriter, r *http.Request) {
-	id, err := parseVolumeID(r)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid volume id")
-		return
-	}
+	id := volumeFrom(r).ID
 	s.stopVolume(id)
 	if err := s.idx.DeleteVolume(id); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -231,18 +261,14 @@ func (s *Server) handleDeleteVolume(w http.ResponseWriter, r *http.Request) {
 
 // handleTestVolume re-tests a saved volume's stored credentials.
 func (s *Server) handleTestVolume(w http.ResponseWriter, r *http.Request) {
-	id, err := parseVolumeID(r)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid volume id")
-		return
-	}
+	id := volumeFrom(r).ID
 
 	secret, err := s.idx.GetVolumeSecret(id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "volume not found")
 		return
 	}
-	password, err := decryptPassword(s.masterKey, secret.PasswordEnc)
+	password, err := openPassword(s.masterKey, secret.ID, secret.OwnerID, secret.PasswordEnc)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "decrypt password: "+err.Error())
 		return
@@ -302,14 +328,6 @@ func (s *Server) startVolumeAsync(vol index.Volume) {
 			}
 		}
 	}()
-}
-
-func decryptPassword(masterKey, passwordEnc []byte) (string, error) {
-	plaintext, err := crypto.Decrypt(masterKey, passwordEnc)
-	if err != nil {
-		return "", fmt.Errorf("decrypt: %w", err)
-	}
-	return string(plaintext), nil
 }
 
 func errMsg(err error) string {

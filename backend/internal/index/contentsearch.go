@@ -62,10 +62,10 @@ type ContentMatch struct {
 // SearchContent finds files whose extracted text matches q, best match first.
 // Each file appears once, with the passage that ranked highest. Files whose
 // name already matches q are left out (name search returns those), and the
-// volume, hidden-file and modified-time filters work as in Search.
-func (idx *Index) SearchContent(volumeID int64, q string, limit int, includeHidden bool, modified TimeRange) ([]ContentMatch, error) {
+// scope, hidden-file and modified-time filters work as in Search.
+func (idx *Index) SearchContent(scope []int64, q string, limit int, includeHidden bool, modified TimeRange) ([]ContentMatch, error) {
 	tq := tsQuery(q)
-	if tq == "" {
+	if tq == "" || len(scope) == 0 {
 		return nil, nil
 	}
 	if limit <= 0 || limit > 500 {
@@ -78,10 +78,7 @@ func (idx *Index) SearchContent(volumeID int64, q string, limit int, includeHidd
 		return "$" + strconv.Itoa(len(args))
 	}
 
-	where := []string{`c.tsv @@ q.tq`, `NOT (f.name ILIKE ` + arg("%"+likeEscape(q)+"%") + `)`}
-	if volumeID != 0 {
-		where = append(where, `f.volume_id = `+arg(volumeID))
-	}
+	where := []string{`c.tsv @@ q.tq`, `NOT (f.name ILIKE ` + arg("%"+likeEscape(q)+"%") + `)`, `f.volume_id = ANY(` + arg(scope) + `)`}
 	if modified.From != 0 {
 		where = append(where, `f.mod_time >= `+arg(modified.From))
 	}

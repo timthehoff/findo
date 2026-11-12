@@ -54,8 +54,9 @@ make run
 The server reads config from environment variables, optionally via a local
 `.env` file (see `backend/internal/config/config.go`). The only required var
 is `FINDO_MASTER_KEY`, which encrypts SMB volume passwords at rest. Optional:
-`HTTP_ADDR` (default `127.0.0.1:8080`, this machine only; Findo has no login, so see
-[`docs/macos-install.md`](docs/macos-install.md) before widening it), `FINDO_ALLOWED_HOSTS`, and `DATABASE_URL` (default `postgres:///findo`, the
+`HTTP_ADDR` (default `127.0.0.1:8080`, this machine only; see
+[`docs/macos-install.md`](docs/macos-install.md) before widening it), `FINDO_PUBLIC_URL` (the HTTPS address passkeys are
+bound to; default `http://localhost:8080`), `FINDO_ALLOWED_HOSTS`, and `DATABASE_URL` (default `postgres:///findo`, the
 local server over its Unix socket; `make run` uses `postgres:///findo_dev`).
 
 SMB volumes themselves aren't configured via environment variables — add one

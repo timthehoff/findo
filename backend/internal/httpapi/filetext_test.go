@@ -19,7 +19,7 @@ func textURL(volID int64, path, extra string) string {
 
 func getText(srv *Server, target string) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
-	srv.Routes().ServeHTTP(rec, httptest.NewRequest("GET", target, nil))
+	authRoutes(srv).ServeHTTP(rec, httptest.NewRequest("GET", target, nil))
 	return rec
 }
 

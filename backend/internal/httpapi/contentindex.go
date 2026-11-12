@@ -237,7 +237,12 @@ func (s *Server) handleContentStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	progress, err := s.idx.ContentProgress(extract.Supported(), cs.MaxFileBytes)
+	scope, err := s.scope(principalFrom(r))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	progress, err := s.idx.ContentProgress(scope, extract.Supported(), cs.MaxFileBytes)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -247,12 +252,7 @@ func (s *Server) handleContentStatus(w http.ResponseWriter, r *http.Request) {
 
 // handleContentRetry queues a volume's failed files again.
 func (s *Server) handleContentRetry(w http.ResponseWriter, r *http.Request) {
-	id, err := parseVolumeID(r)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid volume id")
-		return
-	}
-	n, err := s.idx.RetryFailedContent(id)
+	n, err := s.idx.RetryFailedContent(volumeFrom(r).ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

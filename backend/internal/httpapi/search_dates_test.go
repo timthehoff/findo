@@ -21,7 +21,7 @@ func TestSearchDateFilters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := srv.Routes()
+	h := authRoutes(srv)
 	search := func(url string) (int, []string, map[string]interface{}) {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequest("GET", url, nil))

@@ -14,7 +14,7 @@ func TestEncryptDecryptRoundTrip(t *testing.T) {
 	key := testKey()
 	plaintext := []byte("hunter2")
 
-	ciphertext, err := Encrypt(key, plaintext)
+	ciphertext, err := Encrypt(key, plaintext, nil)
 	if err != nil {
 		t.Fatalf("Encrypt: %v", err)
 	}
@@ -22,7 +22,7 @@ func TestEncryptDecryptRoundTrip(t *testing.T) {
 		t.Fatalf("ciphertext should not contain the plaintext in the clear")
 	}
 
-	got, err := Decrypt(key, ciphertext)
+	got, err := Decrypt(key, ciphertext, nil)
 	if err != nil {
 		t.Fatalf("Decrypt: %v", err)
 	}
@@ -33,11 +33,11 @@ func TestEncryptDecryptRoundTrip(t *testing.T) {
 
 func TestEncryptProducesDistinctCiphertextsForSamePlaintext(t *testing.T) {
 	key := testKey()
-	a, err := Encrypt(key, []byte("same"))
+	a, err := Encrypt(key, []byte("same"), nil)
 	if err != nil {
 		t.Fatalf("Encrypt: %v", err)
 	}
-	b, err := Encrypt(key, []byte("same"))
+	b, err := Encrypt(key, []byte("same"), nil)
 	if err != nil {
 		t.Fatalf("Encrypt: %v", err)
 	}
@@ -47,26 +47,26 @@ func TestEncryptProducesDistinctCiphertextsForSamePlaintext(t *testing.T) {
 }
 
 func TestDecryptFailsWithWrongKey(t *testing.T) {
-	ciphertext, err := Encrypt(testKey(), []byte("secret"))
+	ciphertext, err := Encrypt(testKey(), []byte("secret"), nil)
 	if err != nil {
 		t.Fatalf("Encrypt: %v", err)
 	}
 	wrongKey := bytes.Repeat([]byte{0x99}, KeySize)
-	if _, err := Decrypt(wrongKey, ciphertext); err == nil {
+	if _, err := Decrypt(wrongKey, ciphertext, nil); err == nil {
 		t.Fatalf("expected Decrypt to fail with the wrong key")
 	}
 }
 
 func TestDecryptFailsOnTamperedCiphertext(t *testing.T) {
 	key := testKey()
-	ciphertext, err := Encrypt(key, []byte("secret"))
+	ciphertext, err := Encrypt(key, []byte("secret"), nil)
 	if err != nil {
 		t.Fatalf("Encrypt: %v", err)
 	}
 	tampered := append([]byte(nil), ciphertext...)
 	tampered[len(tampered)-1] ^= 0xFF
 
-	if _, err := Decrypt(key, tampered); err == nil {
+	if _, err := Decrypt(key, tampered, nil); err == nil {
 		t.Fatalf("expected Decrypt to reject a tampered ciphertext")
 	}
 }
@@ -88,5 +88,25 @@ func TestParseKeyValidatesLength(t *testing.T) {
 func TestParseKeyRejectsInvalidBase64(t *testing.T) {
 	if _, err := ParseKey("not-valid-base64!!!"); err == nil {
 		t.Fatalf("expected ParseKey to reject invalid base64")
+	}
+}
+
+func TestAdditionalDataBindsTheCiphertextToItsContext(t *testing.T) {
+	key := testKey()
+	aad := []byte("volume=1;owner=2")
+	ciphertext, err := Encrypt(key, []byte("secret"), aad)
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+	if got, err := Decrypt(key, ciphertext, aad); err != nil || string(got) != "secret" {
+		t.Fatalf("Decrypt with the same data = %q, %v", got, err)
+	}
+	for name, other := range map[string][]byte{
+		"different data": []byte("volume=1;owner=3"),
+		"no data":        nil,
+	} {
+		if _, err := Decrypt(key, ciphertext, other); err == nil {
+			t.Errorf("Decrypt with %s must fail: a ciphertext moved to another row must not open", name)
+		}
 	}
 }

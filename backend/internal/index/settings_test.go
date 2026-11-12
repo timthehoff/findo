@@ -71,7 +71,7 @@ func TestContentSettingsValidation(t *testing.T) {
 
 func TestVolumeContentIndexOptIn(t *testing.T) {
 	idx := openTest(t)
-	v, err := idx.CreateVolume("nas", "h", "s", "u", []byte("x"))
+	v, err := idx.CreateVolume(testOwner(t, idx), "nas", "h", "s", "u", sealed([]byte("x")))
 	if err != nil {
 		t.Fatal(err)
 	}

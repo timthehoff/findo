@@ -19,11 +19,7 @@ import (
 // Like /files/content it is served nosniff and sandboxed, so file text can
 // never run as markup on this origin.
 func (s *Server) handleFileText(w http.ResponseWriter, r *http.Request) {
-	volumeID, err := parseVolumeIDParam(r)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
+	volumeID := volumeFrom(r).ID
 	p := strings.Trim(r.URL.Query().Get("path"), "/")
 	if p == "" {
 		writeError(w, http.StatusBadRequest, "missing required query param 'path'")

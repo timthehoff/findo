@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -21,7 +22,11 @@ import (
 var version = "dev"
 
 func main() {
-	log.Printf("findo-server %s", version)
+	// "findo-server user ..." manages accounts and exits; it doesn't serve.
+	isUserCommand := len(os.Args) > 1 && os.Args[1] == "user"
+	if !isUserCommand {
+		log.Printf("findo-server %s", version)
+	}
 	cfg, err := config.Load(".env")
 	if err != nil {
 		log.Fatalf("config: %v", err)
@@ -33,7 +38,23 @@ func main() {
 	}
 	defer idx.Close()
 
+	if isUserCommand {
+		if err := userCommand(os.Args[2:], idx, cfg.MasterKey, cfg.PublicURL, os.Stdout); err != nil {
+			idx.Close()
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	srv := httpapi.NewServer(idx, cfg.MasterKey, version)
+	if err := srv.SetPublicURL(cfg.PublicURL); err != nil {
+		log.Fatalf("FINDO_PUBLIC_URL: %v", err)
+	}
+	log.Printf("sign-in address: %s (passkeys are bound to %s)", cfg.PublicURL, cfg.PublicURL.Hostname())
+	if n, err := idx.CountUsers(); err == nil && n == 0 {
+		log.Printf("no accounts yet: run `findo-server user add --admin <name>` and open the link it prints")
+	}
 	ctx := context.Background()
 	go srv.RunContentIndexer(ctx)
 
@@ -59,7 +80,7 @@ func main() {
 
 	log.Printf("findo-server listening on %s", listenURL(cfg.HTTPAddr))
 	if config.ListensBeyondLoopback(cfg.HTTPAddr) {
-		log.Printf("WARNING: %s is reachable from other devices. Findo has no login: anyone who can connect can search and download files from every connected share. Only do this on a network you trust.", cfg.HTTPAddr)
+		log.Printf("WARNING: %s is reachable from other devices over plain HTTP. Passkey sign-in only works through the HTTPS address in FINDO_PUBLIC_URL; keep HTTP_ADDR on 127.0.0.1 and put a TLS proxy such as Caddy in front.", cfg.HTTPAddr)
 	}
 	if err := httpSrv.ListenAndServe(); err != nil {
 		log.Fatal(err)

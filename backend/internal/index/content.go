@@ -176,11 +176,14 @@ const maxReasonsPerVolume = 5
 
 // ContentProgress reports, for every volume opted in to content indexing,
 // how many eligible files (extension in exts) are done, skipped, failed or
-// still pending. A "too large" skip that now fits maxFileBytes counts as
+// still pending, limited to the volumes in scope. A "too large" skip that now fits maxFileBytes counts as
 // pending, as it is in the queue.
-func (idx *Index) ContentProgress(exts []string, maxFileBytes int64) ([]ContentProgress, error) {
+func (idx *Index) ContentProgress(scope []int64, exts []string, maxFileBytes int64) ([]ContentProgress, error) {
 	out := []ContentProgress{}
 	byVolume := map[int64]*ContentProgress{}
+	if scope == nil {
+		scope = []int64{}
+	}
 
 	rows, err := idx.db.Query(`
 		SELECT f.volume_id,
@@ -192,8 +195,8 @@ func (idx *Index) ContentProgress(exts []string, maxFileBytes int64) ([]ContentP
 		FROM files f
 		JOIN volumes v ON v.id = f.volume_id AND v.content_index
 		LEFT JOIN content_state cs ON cs.volume_id = f.volume_id AND cs.path = f.path
-		WHERE NOT f.is_dir AND lower(f.ext) = ANY($1)`+visibleOnly+`
-		GROUP BY f.volume_id ORDER BY f.volume_id`, exts, maxFileBytes)
+		WHERE NOT f.is_dir AND lower(f.ext) = ANY($1) AND f.volume_id = ANY($3)`+visibleOnly+`
+		GROUP BY f.volume_id ORDER BY f.volume_id`, exts, maxFileBytes, scope)
 	if err != nil {
 		return nil, err
 	}
@@ -216,7 +219,7 @@ func (idx *Index) ContentProgress(exts []string, maxFileBytes int64) ([]ContentP
 		byVolume[out[i].VolumeID] = &out[i]
 	}
 	// Volumes that are opted in but have nothing eligible yet still report.
-	vrows, err := idx.db.Query(`SELECT id FROM volumes WHERE content_index ORDER BY id`)
+	vrows, err := idx.db.Query(`SELECT id FROM volumes WHERE content_index AND id = ANY($1) ORDER BY id`, scope)
 	if err != nil {
 		return nil, err
 	}
@@ -247,9 +250,10 @@ func (idx *Index) ContentProgress(exts []string, maxFileBytes int64) ([]ContentP
 		JOIN volumes v ON v.id = cs.volume_id AND v.content_index
 		WHERE cs.status IN ('skipped', 'failed') AND cs.size = f.size AND cs.mod_time = f.mod_time
 		  AND NOT (cs.status = 'skipped' AND cs.reason = 'too_large' AND f.size <= $1)
+		  AND cs.volume_id = ANY($2)
 		GROUP BY cs.volume_id, cs.status, cs.reason
 		ORDER BY count(*) DESC, cs.status, cs.reason
-		LIMIT 500`, maxFileBytes)
+		LIMIT 500`, maxFileBytes, scope)
 	if err != nil {
 		return nil, err
 	}

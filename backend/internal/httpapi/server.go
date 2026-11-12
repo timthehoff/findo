@@ -12,13 +12,16 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/thoff/findo/backend/internal/dashboard"
+	"github.com/go-webauthn/webauthn/webauthn"
+
+	"github.com/thoff/findo/backend/internal/auth"
 	"github.com/thoff/findo/backend/internal/datequery"
 	"github.com/thoff/findo/backend/internal/index"
 	"github.com/thoff/findo/backend/internal/smbclient"
@@ -92,6 +95,13 @@ type Server struct {
 	version   string // build version; "dev" for unreleased builds
 	updates   *updateChecker
 
+	// Passkey sign-in. publicURL is where people reach Findo and what passkeys
+	// are bound to (SetPublicURL); challenges and limiter are in memory.
+	publicURL  *url.URL
+	wa         *webauthn.WebAuthn
+	challenges *auth.Challenges
+	limiter    *auth.Limiter
+
 	// newSMB constructs the SMB client for a volume; overridden in tests to
 	// inject a fake NAS instead of dialing a real one.
 	newSMB func(host, share, user, pass string) smbConnector
@@ -112,7 +122,7 @@ func NewServer(idx *index.Index, masterKey []byte, version string) *Server {
 	cur, ok := parseSemver(version)
 	includePre := ok && cur[0] == 0
 
-	return &Server{
+	s := &Server{
 		idx:       idx,
 		masterKey: masterKey,
 		version:   version,
@@ -125,42 +135,15 @@ func NewServer(idx *index.Index, masterKey []byte, version string) *Server {
 		contentKick:    make(chan struct{}, 1),
 		contentTimeout: defaultContentTimeout,
 		contentIdle:    defaultContentIdle,
-	}
-}
 
-func (s *Server) Routes() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", s.handleHealth)
-	mux.HandleFunc("GET /version", s.handleVersion)
-	mux.HandleFunc("GET /stats", s.handleStats)
-	mux.HandleFunc("GET /filetypes", s.handleFileTypes)
-	mux.HandleFunc("GET /settings", s.handleGetSettings)
-	mux.HandleFunc("PUT /settings", s.handlePutSettings)
-	mux.HandleFunc("GET /content/status", s.handleContentStatus)
-	mux.HandleFunc("POST /volumes/{id}/content/retry", s.handleContentRetry)
-	mux.HandleFunc("GET /files", s.handleList)
-	mux.HandleFunc("GET /search", s.handleSearch)
-	mux.HandleFunc("GET /files/text", s.handleFileText)
-	mux.HandleFunc("GET /files/content", s.handleContent)
-	// Same handler with the file's name as a cosmetic URL suffix: browsers
-	// title a tab after the URL's last segment (images, text, media), so
-	// links end in the real filename instead of "content". The name is
-	// ignored; volume and path still come from the query string.
-	mux.HandleFunc("GET /files/content/{name...}", s.handleContent)
-	mux.HandleFunc("GET /volumes", s.handleListVolumes)
-	mux.HandleFunc("POST /volumes", s.handleCreateVolume)
-	mux.HandleFunc("PUT /volumes/{id}", s.handleUpdateVolume)
-	mux.HandleFunc("DELETE /volumes/{id}", s.handleDeleteVolume)
-	mux.HandleFunc("POST /volumes/test", s.handleTestVolumeInput)
-	mux.HandleFunc("POST /volumes/{id}/test", s.handleTestVolume)
-	mux.HandleFunc("POST /volumes/{id}/reindex", s.handleReindex)
-	mux.HandleFunc("GET /volumes/{id}/crawl-runs", s.handleCrawlRuns)
-	mux.HandleFunc("GET /volumes/{id}/insights", s.handleVolumeInsights)
-	// The search page used to live at /search.html; keep old bookmarks and
-	// home-screen pins working now that it's the landing page.
-	mux.Handle("GET /search.html", http.RedirectHandler("/", http.StatusMovedPermanently))
-	mux.Handle("GET /", dashboard.Handler())
-	return logMiddleware(mux)
+		challenges: auth.NewChallenges(),
+		limiter:    auth.NewLimiter(),
+	}
+	// Until main says otherwise: reachable from this machine only.
+	if err := s.SetPublicURL(&url.URL{Scheme: "http", Host: "localhost:8080"}); err != nil {
+		panic(err) // a constant URL; can't fail
+	}
+	return s
 }
 
 func logMiddleware(next http.Handler) http.Handler {
@@ -255,7 +238,7 @@ func (s *Server) StartVolume(ctx context.Context, vol index.Volume) error {
 	if err != nil {
 		return fmt.Errorf("load volume %d secret: %w", vol.ID, err)
 	}
-	password, err := decryptPassword(s.masterKey, secret.PasswordEnc)
+	password, err := openPassword(s.masterKey, secret.ID, secret.OwnerID, secret.PasswordEnc)
 	if err != nil {
 		return fmt.Errorf("decrypt volume %d password: %w", vol.ID, err)
 	}
@@ -306,7 +289,7 @@ func (s *Server) triggerCrawl(volumeID int64, trigger string) error {
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	vols, err := s.idx.ListVolumes()
+	vols, err := s.idx.ListVolumesByOwner(principalFrom(r).UserID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -343,7 +326,12 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
-	stats, err := s.idx.Stats()
+	scope, err := s.scope(principalFrom(r))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	stats, err := s.idx.Stats(scope)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -359,11 +347,7 @@ func wantsHidden(r *http.Request) bool {
 }
 
 func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
-	volumeID, err := parseVolumeIDParam(r)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
+	volumeID := volumeFrom(r).ID
 	dir := r.URL.Query().Get("path")
 	if !smbclient.ValidPath(dir) {
 		writeError(w, http.StatusBadRequest, "invalid 'path' query param")
@@ -418,14 +402,28 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var volumeID int64
+	// Search the caller's volumes: all of them, or the one named by ?volume=
+	// (which must be theirs; anyone else's is a 404, as everywhere).
+	p := principalFrom(r)
+	scope, err := s.scope(p)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	if raw := params.Get("volume"); raw != "" {
 		id, err := strconv.ParseInt(raw, 10, 64)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "invalid 'volume' query param")
 			return
 		}
-		volumeID = id
+		if _, ok, err := s.ownedVolume(p, id); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		} else if !ok {
+			writeError(w, http.StatusNotFound, "volume not found")
+			return
+		}
+		scope = []int64{id}
 	}
 
 	limit, _ := strconv.Atoi(params.Get("limit"))
@@ -433,7 +431,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		limit = 100
 	}
 	hidden := wantsHidden(r)
-	files, err := s.idx.Search(volumeID, nameQuery, limit, hidden, index.TimeRange(mod))
+	files, err := s.idx.Search(scope, nameQuery, limit, hidden, index.TimeRange(mod))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -447,7 +445,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	contentMatches := 0
 	if nameQuery != "" && len(files) < limit {
-		hits, err := s.idx.SearchContent(volumeID, nameQuery, limit-len(files), hidden, index.TimeRange(mod))
+		hits, err := s.idx.SearchContent(scope, nameQuery, limit-len(files), hidden, index.TimeRange(mod))
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -487,11 +485,7 @@ func parseTimeParam(raw string, loc *time.Location) (int64, error) {
 }
 
 func (s *Server) handleContent(w http.ResponseWriter, r *http.Request) {
-	volumeID, err := parseVolumeIDParam(r)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
+	volumeID := volumeFrom(r).ID
 	p := r.URL.Query().Get("path")
 	if p == "" {
 		writeError(w, http.StatusBadRequest, "missing required query param 'path'")
@@ -520,11 +514,7 @@ func (s *Server) handleContent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleReindex(w http.ResponseWriter, r *http.Request) {
-	id, err := parseVolumeID(r)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid volume id")
-		return
-	}
+	id := volumeFrom(r).ID
 	if err := s.triggerCrawl(id, triggerManual); err != nil {
 		if errors.Is(err, errCrawlInProgress) {
 			writeError(w, http.StatusConflict, err.Error())
@@ -537,11 +527,7 @@ func (s *Server) handleReindex(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCrawlRuns(w http.ResponseWriter, r *http.Request) {
-	id, err := parseVolumeID(r)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid volume id")
-		return
-	}
+	id := volumeFrom(r).ID
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	runs, err := s.idx.CrawlRuns(id, limit)
 	if err != nil {
@@ -555,11 +541,7 @@ func (s *Server) handleCrawlRuns(w http.ResponseWriter, r *http.Request) {
 // per-volume charts: storage broken down by file extension, and the
 // largest individual files.
 func (s *Server) handleVolumeInsights(w http.ResponseWriter, r *http.Request) {
-	id, err := parseVolumeID(r)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid volume id")
-		return
-	}
+	id := volumeFrom(r).ID
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 
 	extensions, err := s.idx.ExtensionBreakdown(id, limit)
