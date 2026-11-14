@@ -134,6 +134,8 @@ func (s *Server) routeSpecs() []routeSpec {
 		//
 		// The search page used to live at /search.html; keep old bookmarks and
 		// home-screen pins working now that it's the landing page.
+		// The page an enrollment link (<public url>/enroll#<token>) opens.
+		{"GET /enroll", accessPublic, dashboard.Page("enroll.html")},
 		{"GET /search.html", accessPublic, http.RedirectHandler("/", http.StatusMovedPermanently)},
 		{"GET /", accessPublic, dashboard.Handler()},
 	}

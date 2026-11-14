@@ -1,7 +1,9 @@
 // Package dashboard serves a small static multi-page site for poking the
 // running index: index.html, the landing page (search and directory
-// browsing), and volumes.html (volume config + crawl/watch monitoring),
-// sharing css/ and js/ files between them. No build step — plain HTML/CSS/JS (ES modules) calling the
+// browsing), volumes.html (volume config + crawl/watch monitoring), text.html
+// (extracted text), and the account pages (login.html, enroll.html for
+// enrollment links, account.html, users.html), sharing css/ and js/ files
+// between them. No build step — plain HTML/CSS/JS (ES modules) calling the
 // JSON API via fetch.
 package dashboard
 
@@ -20,6 +22,18 @@ func Handler() http.Handler {
 		panic(err) // embedded at build time; can't fail at runtime
 	}
 	return withSecurityHeaders(http.FileServer(http.FS(sub)))
+}
+
+// Page serves one embedded page at a path other than its file name: the
+// enrollment page lives at /enroll, which is the address in enrollment links.
+func Page(name string) http.Handler {
+	sub, err := fs.Sub(staticFiles, "static")
+	if err != nil {
+		panic(err) // embedded at build time; can't fail at runtime
+	}
+	return withSecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFileFS(w, r, sub, name)
+	}))
 }
 
 // withSecurityHeaders applies a strict Content-Security-Policy and friends to

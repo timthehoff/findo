@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Set up a passkey — Findo</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/auth.css">
+</head>
+<body class="auth">
+  <button class="icon-btn auth-theme" data-theme-toggle></button>
+  <main class="auth-card">
+    <p class="brand" style="margin:0">🐾 Findo</p>
+    <h1>Set up a passkey</h1>
+    <p>A passkey lets this device sign you in to Findo with Face ID, Touch ID or your device PIN. There's no password.</p>
+    <form id="form">
+      <label>Name this device
+        <input type="text" id="label" maxlength="60" autocomplete="off">
+      </label>
+      <button class="primary" id="goBtn" type="submit" disabled>Create passkey</button>
+    </form>
+    <div class="auth-msg" id="msg" role="status"></div>
+  </main>
+  <script type="module" src="/js/enroll.js"></script>
+</body>
+</html>

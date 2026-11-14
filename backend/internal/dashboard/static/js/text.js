@@ -2,9 +2,11 @@ import { escapeHTML } from './util.js';
 import { getJSON } from './api.js';
 import { initTheme } from './theme.js';
 import { initVersion } from './version.js';
+import { initUser } from './user.js';
 
 initTheme();
 initVersion();
+initUser();
 
 const params = new URLSearchParams(location.search);
 const volumeId = params.get('volume') || '';
