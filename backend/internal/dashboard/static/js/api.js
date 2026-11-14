@@ -11,6 +11,8 @@ export class ApiError extends Error {
     super(message);
     this.status = status;
     this.data = data;
+    // The server wants a recent passkey confirmation first (see confirm.js).
+    this.reauthRequired = !!(data && data.reauthRequired);
   }
 }
 

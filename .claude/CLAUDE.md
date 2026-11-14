@@ -320,8 +320,47 @@ comment for the `curl` command that registers it as a volume).
   so a ciphertext copied to another volume or owner won't open; an ownerless
   legacy volume uses none until adopted, and reassigning an owner reseals.
   Volume names are unique per owner. Deleting a user deletes their volumes first
-  (the foreign key is deliberately not cascading). Still open on #37: Caddy/HTTPS
+  (the foreign key is deliberately not cascading). **Admin isolation is not a
+  security boundary**: an admin can give themselves any volume
+  (`PUT /volumes/{id}/owner`) or issue anyone a sign-in link and register their own
+  passkey on it; both are logged and visible to the victim, not prevented, so UI
+  and docs must not promise admins "can't read" files, only that the screens
+  don't show them. **Step-up**: a route declared with `f(...)` in `routeSpecs()`
+  (`fresh`) also needs `sessions.verified_at` within `StepUpWindow` (5 min), else
+  `403 {"reauthRequired": true}`; the session is verified by the passkey that
+  created it, and refreshed by `POST /auth/reauth/begin|finish` (the sign-in
+  ceremony restricted to the user's own passkeys; it doesn't stamp last login).
+  Fresh routes are pinned in `stepup_test.go` (`wantFresh`): add/remove passkey,
+  create/update/delete user, issue a sign-in link, change a volume's owner. On the
+  front end `js/confirm.js` `withConfirm(action, {retry})` shows a dialog whose
+  button opens the passkey prompt (browsers want a click per prompt, so a prompt
+  is never opened behind the person's back; adding a passkey asks for a second
+  press instead of chaining two prompts). Begun ceremonies (`auth.Challenges`)
+  are stored per owner (an address, or `user:<id>`): each may hold 10 and only
+  evicts its own oldest; the store as a whole refuses new ones (503) when full
+  rather than evicting anyone else's. Authenticated responses are
+  `Cache-Control: private, no-store` (set in `guard`); file content is
+  `private, no-cache` (revalidated through the guard on each use); the public
+  sign-in/enrollment ceremonies are `no-store`. Still open on #37: Caddy/HTTPS
   in the installer (PR 3).
+- Outbound connections to user-supplied addresses (`POST /volumes/test`, saved
+  tests, creating and saving a volume) would let any signed-in user probe the
+  network behind the server, so they are limited three ways
+  (`httpapi/volumes.go`): a per-user budget (`auth.Rate`, 10 a minute, 429 +
+  `Retry-After`, shared by everything that connects); at most 8 tests at once
+  (`connectSlots`); and failures are described by `smbclient.Describe` instead
+  of the raw error. It gives one generic message for anything short of an SMB
+  server answering (refused, filtered, timed out, not SMB), and a specific one
+  (bad login, no such share, access denied) once one did, which is inherent to a
+  useful test. Failures to reach are also padded to `smbclient.ConnectTimeout`
+  (8 s, which now bounds the whole dial/handshake/mount via a connection
+  deadline, so a server that accepts and goes silent can't hang a request), so
+  how fast it failed says nothing; the same applies to the background connect
+  after create/save, whose stored `last_test_error` and timestamp would
+  otherwise leak it. Local failures (decrypting the password) keep their own
+  message: `StartVolume` returns a `connectFailure` only for network ones. The
+  raw error is always logged. httpapi tests set `smbclient.ConnectTimeout = 0`
+  (`main_test.go`) so fake failures don't sleep.
 - Network exposure: the server listens on `127.0.0.1:8080`
   by default and logs a warning when `HTTP_ADDR` is widened (plain HTTP, where
   passkeys don't work: reach it through a TLS proxy instead). `main` wraps the

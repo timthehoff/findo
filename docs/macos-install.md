@@ -41,9 +41,17 @@ services may not resolve.
 
 Everyone signs in with a **passkey** (Face ID, Touch ID, or a password manager's
 passkey); there are no passwords. Each person has their own volumes, with their
-own NAS login, and can only search, browse and download their own. Administrators
-add and disable users and can see other users' volume *names and owners*, never
-their files.
+own NAS login, and can only search, browse and download their own. The screens
+never show an administrator anyone else's files, but **an administrator can take
+over any account**: by handing a volume to themselves, or by making a sign-in link
+for someone and registering their own passkey on it. Both are logged and visible
+to the person (a lost volume, a passkey they didn't add), but not prevented, so
+only make people administrators if you'd trust them with everyone's files.
+
+Changes that could let someone into an account for good (adding or removing a
+passkey, making sign-in links, managing users and owners) ask you to confirm with
+a passkey first, if you haven't in the last five minutes. A stolen session
+cookie alone can't plant a passkey that outlives it.
 
 Create the first account, an administrator, on this Mac, from the config
 directory:

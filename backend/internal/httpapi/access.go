@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/thoff/findo/backend/internal/auth"
 	"github.com/thoff/findo/backend/internal/dashboard"
@@ -35,8 +36,16 @@ const (
 type routeSpec struct {
 	pattern string
 	access  access
+	// fresh routes also need a passkey confirmation from the last few minutes
+	// (Server.stepUpWindow), on top of being signed in: the actions that would
+	// let a stolen session take an account over for good.
+	fresh   bool
 	handler http.Handler
 }
+
+// StepUpWindow is how recently a passkey must have proved presence for a
+// session to do a fresh route.
+const StepUpWindow = 5 * time.Minute
 
 // Principal is the signed-in user a request acts as.
 type Principal struct {
@@ -44,6 +53,8 @@ type Principal struct {
 	Username  string
 	Role      string
 	SessionID int64
+	// VerifiedAt is when a passkey last proved presence for this session.
+	VerifiedAt time.Time
 }
 
 func (p Principal) IsAdmin() bool { return p.Role == index.RoleAdmin }
@@ -71,7 +82,11 @@ func volumeFrom(r *http.Request) index.Volume {
 
 func (s *Server) routeSpecs() []routeSpec {
 	h := func(pattern string, a access, fn http.HandlerFunc) routeSpec {
-		return routeSpec{pattern, a, fn}
+		return routeSpec{pattern: pattern, access: a, handler: fn}
+	}
+	// f is h for a route that needs a recent passkey confirmation.
+	f := func(pattern string, a access, fn http.HandlerFunc) routeSpec {
+		return routeSpec{pattern: pattern, access: a, fresh: true, handler: fn}
 	}
 	return []routeSpec{
 		h("GET /healthz", accessPublic, s.handleHealthz),
@@ -84,20 +99,22 @@ func (s *Server) routeSpecs() []routeSpec {
 
 		h("GET /auth/me", accessUser, s.handleMe),
 		h("POST /auth/logout", accessUser, s.handleLogout),
-		h("POST /auth/passkey/register/begin", accessUser, s.handleRegisterBegin),
+		h("POST /auth/reauth/begin", accessUser, s.handleReauthBegin),
+		h("POST /auth/reauth/finish", accessUser, s.handleReauthFinish),
+		f("POST /auth/passkey/register/begin", accessUser, s.handleRegisterBegin),
 		h("POST /auth/passkey/register/finish", accessUser, s.handleRegisterFinish),
 		h("GET /auth/passkeys", accessUser, s.handleListPasskeys),
 		h("PUT /auth/passkeys/{id}", accessUser, s.handleRenamePasskey),
-		h("DELETE /auth/passkeys/{id}", accessUser, s.handleDeletePasskey),
+		f("DELETE /auth/passkeys/{id}", accessUser, s.handleDeletePasskey),
 		h("GET /auth/sessions", accessUser, s.handleListSessions),
 		h("DELETE /auth/sessions/{id}", accessUser, s.handleDeleteSession),
 
 		h("GET /users", accessAdmin, s.handleListUsers),
-		h("POST /users", accessAdmin, s.handleCreateUser),
-		h("PUT /users/{id}", accessAdmin, s.handleUpdateUser),
-		h("DELETE /users/{id}", accessAdmin, s.handleDeleteUser),
-		h("POST /users/{id}/enrollment", accessAdmin, s.handleUserEnrollment),
-		h("PUT /volumes/{id}/owner", accessAdmin, s.handleSetVolumeOwner),
+		f("POST /users", accessAdmin, s.handleCreateUser),
+		f("PUT /users/{id}", accessAdmin, s.handleUpdateUser),
+		f("DELETE /users/{id}", accessAdmin, s.handleDeleteUser),
+		f("POST /users/{id}/enrollment", accessAdmin, s.handleUserEnrollment),
+		f("PUT /volumes/{id}/owner", accessAdmin, s.handleSetVolumeOwner),
 
 		h("GET /health", accessUser, s.handleHealth),
 		h("GET /version", accessUser, s.handleVersion),
@@ -135,26 +152,30 @@ func (s *Server) routeSpecs() []routeSpec {
 		// The search page used to live at /search.html; keep old bookmarks and
 		// home-screen pins working now that it's the landing page.
 		// The page an enrollment link (<public url>/enroll#<token>) opens.
-		{"GET /enroll", accessPublic, dashboard.Page("enroll.html")},
-		{"GET /search.html", accessPublic, http.RedirectHandler("/", http.StatusMovedPermanently)},
-		{"GET /", accessPublic, dashboard.Handler()},
+		h("GET /enroll", accessPublic, dashboard.Page("enroll.html").ServeHTTP),
+		h("GET /search.html", accessPublic, http.RedirectHandler("/", http.StatusMovedPermanently).ServeHTTP),
+		h("GET /", accessPublic, dashboard.Handler().ServeHTTP),
 	}
 }
 
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 	for _, rt := range s.routeSpecs() {
-		mux.Handle(rt.pattern, s.guard(rt.access, rt.handler))
+		mux.Handle(rt.pattern, s.guard(rt.access, rt.fresh, rt.handler))
 	}
 	return logMiddleware(mux)
 }
 
 // guard enforces a route's access level before calling next.
-func (s *Server) guard(a access, next http.Handler) http.Handler {
+func (s *Server) guard(a access, fresh bool, next http.Handler) http.Handler {
 	if a == accessPublic {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Everything behind sign-in is one person's data: never let a browser or
+		// a shared cache keep it for someone else. (File content relaxes this to
+		// "revalidate each time", which still asks the server, and so this guard.)
+		w.Header().Set("Cache-Control", "private, no-store")
 		su, token, ok, err := s.session(r)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "could not check your session")
@@ -164,7 +185,7 @@ func (s *Server) guard(a access, next http.Handler) http.Handler {
 			s.writeUnauthorized(w)
 			return
 		}
-		p := Principal{UserID: su.User.ID, Username: su.User.Username, Role: su.User.Role, SessionID: su.SessionID}
+		p := Principal{UserID: su.User.ID, Username: su.User.Username, Role: su.User.Role, SessionID: su.SessionID, VerifiedAt: su.VerifiedAt}
 		if su.Refreshed {
 			// The server-side expiry moved out; move the cookie's with it, or a
 			// home-screen app would be signed out 30 days after sign-in however
@@ -173,6 +194,13 @@ func (s *Server) guard(a access, next http.Handler) http.Handler {
 		}
 		if a == accessAdmin && !p.IsAdmin() {
 			writeError(w, http.StatusForbidden, "administrator access required")
+			return
+		}
+		if fresh && time.Since(p.VerifiedAt) > s.stepUpWindow {
+			writeJSON(w, http.StatusForbidden, map[string]interface{}{
+				"error":          "confirm it's you with your passkey to do this",
+				"reauthRequired": true,
+			})
 			return
 		}
 

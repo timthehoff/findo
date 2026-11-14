@@ -4,6 +4,7 @@ import { initTheme } from './theme.js';
 import { toast } from './toast.js';
 import { initVersion } from './version.js';
 import { initUser } from './user.js';
+import { withConfirm } from './confirm.js';
 
 initTheme();
 initVersion();
@@ -371,7 +372,7 @@ document.getElementById('ownerCancel').addEventListener('click', () => ownerDial
 document.getElementById('ownerForm').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   try {
-    await putJSON(`/volumes/${ownerVolume}/owner`, { ownerId: Number(ownerSelect.value) });
+    await withConfirm(() => putJSON(`/volumes/${ownerVolume}/owner`, { ownerId: Number(ownerSelect.value) }));
     toast('Owner changed.', 'success');
   } catch (e) {
     toast(e.message, 'error');

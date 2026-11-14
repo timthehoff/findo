@@ -4,6 +4,7 @@ import { initTheme } from './theme.js';
 import { toast } from './toast.js';
 import { initVersion } from './version.js';
 import { initUser } from './user.js';
+import { withConfirm } from './confirm.js';
 import { addPasskey, passkeysSupported, friendlyError, deviceLabel } from './webauthn.js';
 
 initTheme();
@@ -84,7 +85,7 @@ passkeysEl.addEventListener('click', async (ev) => {
   } else if (btn.dataset.act === 'remove') {
     if (!confirm('Remove this passkey? Devices that signed in with it are signed out.')) return;
     try {
-      await deleteJSON(`/auth/passkeys/${id}`);
+      await withConfirm(() => deleteJSON(`/auth/passkeys/${id}`));
       toast('Passkey removed.', 'success');
     } catch (e) {
       toast(e.message, 'error');
@@ -116,8 +117,10 @@ document.getElementById('addForm').addEventListener('submit', async (ev) => {
   const btn = document.getElementById('addBtn');
   btn.disabled = true;
   try {
-    await addPasskey(newLabel.value.trim());
-    toast('Passkey added.', 'success');
+    // Confirming opens its own passkey prompt, so adding waits for a second press.
+    if ((await withConfirm(() => addPasskey(newLabel.value.trim()), { retry: false })) !== undefined) {
+      toast('Passkey added.', 'success');
+    }
   } catch (e) {
     toast(friendlyError(e), 'error');
   }

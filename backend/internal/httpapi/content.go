@@ -29,6 +29,6 @@ func setContentHeaders(h http.Header, name string, forceDownload bool) {
 // handleFileTypes serves the extension registry so the dashboard colors its
 // type tiles from the same table the server uses to serve files.
 func (s *Server) handleFileTypes(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.Header().Set("Cache-Control", "private, max-age=3600")
 	writeJSON(w, http.StatusOK, map[string]interface{}{"types": filetype.All()})
 }

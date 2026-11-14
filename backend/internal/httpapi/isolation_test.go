@@ -17,6 +17,7 @@ import (
 // world is one server with three people: ann and bob (ordinary users) who each
 // own a volume with files, and carol, an administrator who owns nothing.
 type world struct {
+	t                  *testing.T
 	srv                *Server
 	ann, bob, carol    index.User
 	annC, bobC, carolC *http.Cookie
@@ -28,7 +29,7 @@ const secretFile = "secret/zeppelin-plan.txt"
 func newWorld(t *testing.T) *world {
 	t.Helper()
 	srv := newBareServer(t)
-	w := &world{srv: srv}
+	w := &world{t: t, srv: srv}
 	w.ann, w.annC = signedInUser(t, srv, "ann", index.RoleUser)
 	w.bob, w.bobC = signedInUser(t, srv, "bob", index.RoleUser)
 	w.carol, w.carolC = signedInUser(t, srv, "carol", index.RoleAdmin)

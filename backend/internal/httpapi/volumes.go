@@ -5,10 +5,12 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/thoff/findo/backend/internal/index"
+	"github.com/thoff/findo/backend/internal/smbclient"
 )
 
 // volumeInput is the request body for creating/updating a volume. Password
@@ -163,6 +165,9 @@ func (s *Server) handleCreateVolume(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !s.allowConnect(w, r) {
+		return
+	}
 	owner := principalFrom(r).UserID
 	vol, err := s.idx.CreateVolume(owner, in.Name, in.Host, in.Share, in.Username, func(volumeID int64) ([]byte, error) {
 		return sealPassword(s.masterKey, volumeID, &owner, in.Password)
@@ -224,6 +229,9 @@ func (s *Server) handleUpdateVolume(w http.ResponseWriter, r *http.Request) {
 		u.PasswordEnc = passwordEnc
 	}
 
+	if !s.allowConnect(w, r) { // saving reconnects
+		return
+	}
 	vol, err := s.idx.UpdateVolume(id, u)
 	if err != nil {
 		writeVolumeWriteError(w, err)
@@ -274,11 +282,16 @@ func (s *Server) handleTestVolume(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	testErr := s.testConnection(secret.Host, secret.Share, secret.Username, password)
-	if err := s.idx.SetVolumeTestResult(id, testErr == nil, errMsg(testErr)); err != nil {
+	release, ok := s.reserveTest(w, r)
+	if !ok {
+		return
+	}
+	defer release()
+	failure := s.testConnection(secret.Host, secret.Share, secret.Username, password)
+	if err := s.idx.SetVolumeTestResult(id, failure == "", failure); err != nil {
 		log.Printf("record test result for volume %d: %v", id, err)
 	}
-	writeTestResult(w, testErr)
+	writeTestResult(w, failure)
 }
 
 // handleTestVolumeInput tests connection details supplied directly in the
@@ -294,22 +307,83 @@ func (s *Server) handleTestVolumeInput(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	testErr := s.testConnection(in.Host, in.Share, in.Username, in.Password)
-	writeTestResult(w, testErr)
+	release, ok := s.reserveTest(w, r)
+	if !ok {
+		return
+	}
+	defer release()
+	writeTestResult(w, s.testConnection(in.Host, in.Share, in.Username, in.Password))
 }
 
-func (s *Server) testConnection(host, share, user, pass string) error {
+// Connecting to whatever address a signed-in user types makes Findo a way to
+// probe the network behind it, so everything that does so is limited three
+// ways: each user gets a few attempts a minute, only a few tests run at once,
+// and a failure says only what Describe allows and takes the same time whether
+// the host refused, ignored or wasn't SMB.
+
+const (
+	connectsPerMinute  = 10
+	maxConcurrentTests = 8
+)
+
+// allowConnect spends one of the caller's connection attempts, or answers 429.
+func (s *Server) allowConnect(w http.ResponseWriter, r *http.Request) bool {
+	ok, wait := s.connectRate.Allow(userKey(principalFrom(r)))
+	if ok {
+		return true
+	}
+	secs := int(wait.Seconds()) + 1
+	w.Header().Set("Retry-After", strconv.Itoa(secs))
+	writeError(w, http.StatusTooManyRequests, "too many connection attempts; try again in "+strconv.Itoa(secs)+" seconds")
+	return false
+}
+
+// reserveTest is allowConnect plus a place in the queue of tests running now.
+// The caller must call release when its test is done.
+func (s *Server) reserveTest(w http.ResponseWriter, r *http.Request) (release func(), ok bool) {
+	if !s.allowConnect(w, r) {
+		return nil, false
+	}
+	select {
+	case s.connectSlots <- struct{}{}:
+		return func() { <-s.connectSlots }, true
+	default:
+		w.Header().Set("Retry-After", "10")
+		writeError(w, http.StatusTooManyRequests, "too many connection tests are running; try again in a few seconds")
+		return nil, false
+	}
+}
+
+// failedSlowly makes a failure to reach an SMB server take as long as the
+// longest connection attempt can, so how quickly it failed tells nothing.
+func failedSlowly(start time.Time, reached bool) {
+	if !reached {
+		time.Sleep(time.Until(start.Add(smbclient.ConnectTimeout)))
+	}
+}
+
+// testConnection tries the connection and returns what the caller may be told
+// about a failure, or "" on success. The real error goes to the log.
+func (s *Server) testConnection(host, share, user, pass string) (failure string) {
+	start := time.Now()
 	smb := s.newSMB(host, share, user, pass)
 	defer smb.Close()
-	if err := smb.Connect(); err != nil {
-		return err
+	err := smb.Connect()
+	if err == nil {
+		err = smb.Ping()
 	}
-	return smb.Ping()
+	if err == nil {
+		return ""
+	}
+	log.Printf("connection test to %s failed: %v", host, err)
+	msg, reached := smbclient.Describe(err)
+	failedSlowly(start, reached)
+	return msg
 }
 
-func writeTestResult(w http.ResponseWriter, testErr error) {
-	if testErr != nil {
-		writeJSON(w, http.StatusOK, map[string]interface{}{"ok": false, "error": testErr.Error()})
+func writeTestResult(w http.ResponseWriter, failure string) {
+	if failure != "" {
+		writeJSON(w, http.StatusOK, map[string]interface{}{"ok": false, "error": failure})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true})
@@ -321,18 +395,22 @@ func writeTestResult(w http.ResponseWriter, testErr error) {
 // visible in the volume list rather than only in the server log.
 func (s *Server) startVolumeAsync(vol index.Volume) {
 	go func() {
+		start := time.Now()
 		if err := s.StartVolume(context.Background(), vol); err != nil {
 			log.Printf("volume %d (%s): failed to start: %v", vol.ID, vol.Name, err)
-			if err := s.idx.SetVolumeTestResult(vol.ID, false, err.Error()); err != nil {
+			// What the person who set the volume up is shown, which for a failed
+			// connection is limited like a test's (the stored time stamp would
+			// otherwise reveal how fast it failed).
+			msg := err.Error()
+			var cf *connectFailure
+			if errors.As(err, &cf) {
+				var reached bool
+				msg, reached = smbclient.Describe(cf.err)
+				failedSlowly(start, reached)
+			}
+			if err := s.idx.SetVolumeTestResult(vol.ID, false, msg); err != nil {
 				log.Printf("record start failure for volume %d: %v", vol.ID, err)
 			}
 		}
 	}()
-}
-
-func errMsg(err error) string {
-	if err == nil {
-		return ""
-	}
-	return err.Error()
 }

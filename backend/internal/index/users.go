@@ -263,8 +263,9 @@ func (idx *Index) ListCredentials(userID int64) ([]Credential, error) {
 }
 
 // RecordCredentialUse stores the new sign count and backup state after a
-// successful sign-in, and stamps the user's last login.
-func (idx *Index) RecordCredentialUse(credentialRowID int64, signCount uint32, backupState bool) error {
+// passkey is used. signedIn is true for a sign-in, which also stamps the user's
+// last login; a confirmation of an existing session doesn't.
+func (idx *Index) RecordCredentialUse(credentialRowID int64, signCount uint32, backupState, signedIn bool) error {
 	tx, err := idx.db.Begin()
 	if err != nil {
 		return err
@@ -277,8 +278,10 @@ func (idx *Index) RecordCredentialUse(credentialRowID int64, signCount uint32, b
 		credentialRowID, int64(signCount), backupState, now).Scan(&userID); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`UPDATE users SET last_login_at = $2 WHERE id = $1`, userID, now); err != nil {
-		return err
+	if signedIn {
+		if _, err := tx.Exec(`UPDATE users SET last_login_at = $2 WHERE id = $1`, userID, now); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }
@@ -305,6 +308,11 @@ func (idx *Index) DeleteCredential(userID, id int64) (bool, error) {
 	}
 	defer tx.Rollback()
 
+	// Lock the user so two removals can't each see a second passkey remaining
+	// and together leave none.
+	if _, err := tx.Exec(`SELECT 1 FROM users WHERE id = $1 FOR UPDATE`, userID); err != nil {
+		return false, err
+	}
 	var n int
 	if err := tx.QueryRow(`SELECT count(*) FROM credentials WHERE user_id = $1`, userID).Scan(&n); err != nil {
 		return false, err
@@ -431,7 +439,8 @@ type Session struct {
 }
 
 // CreateSession stores a session for userID (made with passkey credentialRowID,
-// if known) and returns its id. ttl is normally SessionTTL; a negative one
+// if known) and returns its id. Signing in is itself a passkey proof, so the
+// session starts out verified. ttl is normally SessionTTL; a negative one
 // makes an already-expired session. Expired sessions are swept as a side effect.
 func (idx *Index) CreateSession(userID int64, credentialRowID *int64, tokenHash []byte, ttl time.Duration, userAgent, ip string) (int64, error) {
 	now := time.Now().UTC()
@@ -440,8 +449,8 @@ func (idx *Index) CreateSession(userID int64, credentialRowID *int64, tokenHash 
 	}
 	var id int64
 	err := idx.db.QueryRow(
-		`INSERT INTO sessions (user_id, credential_id, token_hash, created_at, last_used_at, expires_at, user_agent, ip)
-		 VALUES ($1, $2, $3, $4, $4, $5, $6, $7) RETURNING id`,
+		`INSERT INTO sessions (user_id, credential_id, token_hash, created_at, last_used_at, verified_at, expires_at, user_agent, ip)
+		 VALUES ($1, $2, $3, $4, $4, $4, $5, $6, $7) RETURNING id`,
 		userID, credentialRowID, tokenHash, now, now.Add(ttl), truncate(userAgent, 300), ip,
 	).Scan(&id)
 	return id, err
@@ -451,6 +460,8 @@ func (idx *Index) CreateSession(userID int64, credentialRowID *int64, tokenHash 
 type SessionUser struct {
 	SessionID int64
 	User      User
+	// VerifiedAt is when a passkey last proved presence for this session.
+	VerifiedAt time.Time
 	// Refreshed is set when this lookup pushed the session's expiry out, so the
 	// caller can push the cookie's out too.
 	Refreshed bool
@@ -465,11 +476,11 @@ func (idx *Index) SessionByToken(tokenHash []byte) (su SessionUser, ok bool, err
 	var last sql.NullTime
 	var lastUsed time.Time
 	err = idx.db.QueryRow(`
-		SELECT s.id, s.last_used_at, u.id, u.username, u.role, u.disabled, u.created_at, u.last_login_at
+		SELECT s.id, s.last_used_at, s.verified_at, u.id, u.username, u.role, u.disabled, u.created_at, u.last_login_at
 		FROM sessions s JOIN users u ON u.id = s.user_id
 		WHERE s.token_hash = $1 AND s.expires_at > $2 AND NOT u.disabled`,
 		tokenHash, now,
-	).Scan(&su.SessionID, &lastUsed, &su.User.ID, &su.User.Username, &su.User.Role, &su.User.Disabled, &created, &last)
+	).Scan(&su.SessionID, &lastUsed, &su.VerifiedAt, &su.User.ID, &su.User.Username, &su.User.Role, &su.User.Disabled, &created, &last)
 	if errors.Is(err, sql.ErrNoRows) {
 		return SessionUser{}, false, nil
 	}
@@ -488,6 +499,13 @@ func (idx *Index) SessionByToken(tokenHash []byte) (su SessionUser, ok bool, err
 		su.Refreshed = true
 	}
 	return su, true, nil
+}
+
+// MarkSessionVerified records that a passkey proved presence for the session
+// at the given time.
+func (idx *Index) MarkSessionVerified(sessionID int64, at time.Time) error {
+	_, err := idx.db.Exec(`UPDATE sessions SET verified_at = $2 WHERE id = $1`, sessionID, at.UTC())
+	return err
 }
 
 // ListSessions returns a user's live sessions, newest first.
