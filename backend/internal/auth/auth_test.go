@@ -185,3 +185,27 @@ func TestCredentialConversionKeepsTheFlagsTheLibraryChecks(t *testing.T) {
 		t.Fatalf("round trip: %+v", back)
 	}
 }
+
+func TestRateAllowsNPerWindowPerKey(t *testing.T) {
+	now := time.Unix(1000, 0)
+	r := NewRate(3, time.Minute)
+	r.now = func() time.Time { return now }
+
+	for i := 0; i < 3; i++ {
+		if ok, _ := r.Allow("a"); !ok {
+			t.Fatalf("event %d refused within the allowance", i+1)
+		}
+	}
+	now = now.Add(20 * time.Second)
+	ok, wait := r.Allow("a")
+	if ok || wait != 40*time.Second {
+		t.Fatalf("4th event: ok=%v wait=%v, want refused for the 40s left", ok, wait)
+	}
+	if ok, _ := r.Allow("b"); !ok {
+		t.Fatal("another key shares no budget")
+	}
+	now = now.Add(41 * time.Second)
+	if ok, _ := r.Allow("a"); !ok {
+		t.Fatal("a new window should start fresh")
+	}
+}

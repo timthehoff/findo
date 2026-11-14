@@ -95,6 +95,10 @@ type Server struct {
 	version   string // build version; "dev" for unreleased builds
 	updates   *updateChecker
 
+	// Outbound connection attempts: a per-user budget, and the tests running now.
+	connectRate  *auth.Rate
+	connectSlots chan struct{}
+
 	// Passkey sign-in. publicURL is where people reach Findo and what passkeys
 	// are bound to (SetPublicURL); challenges and limiter are in memory.
 	// stepUpWindow is how recent a passkey confirmation fresh routes need.
@@ -138,6 +142,8 @@ func NewServer(idx *index.Index, masterKey []byte, version string) *Server {
 		contentTimeout: defaultContentTimeout,
 		contentIdle:    defaultContentIdle,
 
+		connectRate:  auth.NewRate(connectsPerMinute, time.Minute),
+		connectSlots: make(chan struct{}, maxConcurrentTests),
 		stepUpWindow: StepUpWindow,
 		challenges:   auth.NewChallenges(),
 		limiter:      auth.NewLimiter(),
@@ -232,6 +238,19 @@ func (s *Server) stopVolume(volumeID int64) {
 	rt.smb.Close()
 }
 
+// connectFailure is StartVolume failing to reach or sign in to the NAS, as
+// opposed to a local problem; callers show a limited description of it
+// (smbclient.Describe) rather than the raw error.
+type connectFailure struct {
+	volumeID int64
+	err      error
+}
+
+func (e *connectFailure) Error() string {
+	return fmt.Sprintf("connect volume %d: %v", e.volumeID, e.err)
+}
+func (e *connectFailure) Unwrap() error { return e.err }
+
 // StartVolume connects to vol's SMB share, registers its runtime, and
 // kicks off an initial crawl followed by its change-notify watch loop plus
 // a periodic-crawl safety net. ctx bounds the volume's background
@@ -248,7 +267,7 @@ func (s *Server) StartVolume(ctx context.Context, vol index.Volume) error {
 
 	smb := s.newSMB(secret.Host, secret.Share, secret.Username, password)
 	if err := smb.Connect(); err != nil {
-		return fmt.Errorf("connect volume %d: %w", vol.ID, err)
+		return &connectFailure{volumeID: vol.ID, err: err}
 	}
 
 	volCtx, cancel := context.WithCancel(ctx)

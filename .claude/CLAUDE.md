@@ -343,6 +343,24 @@ comment for the `curl` command that registers it as a volume).
   `private, no-cache` (revalidated through the guard on each use); the public
   sign-in/enrollment ceremonies are `no-store`. Still open on #37: Caddy/HTTPS
   in the installer (PR 3).
+- Outbound connections to user-supplied addresses (`POST /volumes/test`, saved
+  tests, creating and saving a volume) would let any signed-in user probe the
+  network behind the server, so they are limited three ways
+  (`httpapi/volumes.go`): a per-user budget (`auth.Rate`, 10 a minute, 429 +
+  `Retry-After`, shared by everything that connects); at most 8 tests at once
+  (`connectSlots`); and failures are described by `smbclient.Describe` instead
+  of the raw error. It gives one generic message for anything short of an SMB
+  server answering (refused, filtered, timed out, not SMB), and a specific one
+  (bad login, no such share, access denied) once one did, which is inherent to a
+  useful test. Failures to reach are also padded to `smbclient.ConnectTimeout`
+  (8 s, which now bounds the whole dial/handshake/mount via a connection
+  deadline, so a server that accepts and goes silent can't hang a request), so
+  how fast it failed says nothing; the same applies to the background connect
+  after create/save, whose stored `last_test_error` and timestamp would
+  otherwise leak it. Local failures (decrypting the password) keep their own
+  message: `StartVolume` returns a `connectFailure` only for network ones. The
+  raw error is always logged. httpapi tests set `smbclient.ConnectTimeout = 0`
+  (`main_test.go`) so fake failures don't sleep.
 - Network exposure: the server listens on `127.0.0.1:8080`
   by default and logs a warning when `HTTP_ADDR` is widened (plain HTTP, where
   passkeys don't work: reach it through a TLS proxy instead). `main` wraps the

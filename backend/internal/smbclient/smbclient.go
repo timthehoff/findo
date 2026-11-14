@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/hirochachacha/go-smb2"
 )
@@ -62,6 +63,10 @@ func splitHost(host string) (hostname, addr string) {
 	return host, net.JoinHostPort(host, "445")
 }
 
+// ConnectTimeout bounds one attempt to connect, from TCP dial to mounted share.
+// It's a variable so tests can shorten it.
+var ConnectTimeout = 8 * time.Second
+
 // dial opens a fresh TCP connection, SMB2 session, and mounted share.
 // Factored out of connectLocked so Watch can open its own dedicated
 // session (a CHANGE_NOTIFY request sits outstanding until an event
@@ -70,10 +75,15 @@ func splitHost(host string) (hostname, addr string) {
 // dance.
 func dial(host, share, user, pass string) (net.Conn, *smb2.Session, *smb2.Share, error) {
 	hostname, addr := splitHost(host)
-	conn, err := net.Dial("tcp", addr)
+	start := time.Now()
+	conn, err := net.DialTimeout("tcp", addr, ConnectTimeout)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("dial %s: %w", addr, err)
 	}
+	// A server that accepts the connection and then says nothing would
+	// otherwise hold this call (and a request waiting on it) forever. The
+	// deadline covers the whole setup and is lifted once the share is mounted.
+	_ = conn.SetDeadline(start.Add(ConnectTimeout))
 
 	d := &smb2.Dialer{
 		Initiator: &smb2.NTLMInitiator{
@@ -95,6 +105,7 @@ func dial(host, share, user, pass string) (net.Conn, *smb2.Session, *smb2.Share,
 		return nil, nil, nil, fmt.Errorf("mount share %q: %w", share, err)
 	}
 
+	_ = conn.SetDeadline(time.Time{})
 	return conn, sess, fs, nil
 }
 
