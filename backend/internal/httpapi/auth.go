@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
@@ -103,6 +104,7 @@ func cleanLabel(s string) string {
 // ---- sign in ---------------------------------------------------------------
 
 func (s *Server) handleLoginBegin(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store") // challenges, and a session cookie
 	if s.throttled(w, r) {
 		return
 	}
@@ -111,11 +113,16 @@ func (s *Server) handleLoginBegin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "could not start sign-in")
 		return
 	}
-	id := s.challenges.Put(auth.Challenge{Kind: auth.KindLogin, Session: *session})
+	id, ok := s.challenges.Put(clientIP(r), auth.Challenge{Kind: auth.KindLogin, Session: *session})
+	if !ok {
+		writeBusy(w)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"challengeId": id, "options": assertion})
 }
 
 func (s *Server) handleLoginFinish(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store") // challenges, and a session cookie
 	if s.throttled(w, r) {
 		return
 	}
@@ -175,7 +182,7 @@ func (s *Server) handleLoginFinish(w http.ResponseWriter, r *http.Request) {
 		// passkeys never count.
 		log.Printf("auth: WARNING sign-in with passkey %d (%q) of %s reported a non-increasing sign count; the authenticator may be cloned", stored.ID, stored.Label, found.User)
 	}
-	if err := s.idx.RecordCredentialUse(stored.ID, cred.Authenticator.SignCount, cred.Flags.BackupState); err != nil {
+	if err := s.idx.RecordCredentialUse(stored.ID, cred.Authenticator.SignCount, cred.Flags.BackupState, true); err != nil {
 		writeError(w, http.StatusInternalServerError, "could not complete sign-in")
 		return
 	}
@@ -225,6 +232,7 @@ type enrollBeginInput struct {
 }
 
 func (s *Server) handleEnrollBegin(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store") // challenges, and a session cookie
 	if s.throttled(w, r) {
 		return
 	}
@@ -253,11 +261,16 @@ func (s *Server) handleEnrollBegin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "could not start registration")
 		return
 	}
-	id := s.challenges.Put(auth.Challenge{Kind: auth.KindEnroll, Session: *session, EnrollmentID: e.ID, UserID: e.User.ID, Label: cleanLabel(in.Label)})
+	id, ok := s.challenges.Put(clientIP(r), auth.Challenge{Kind: auth.KindEnroll, Session: *session, EnrollmentID: e.ID, UserID: e.User.ID, Label: cleanLabel(in.Label)})
+	if !ok {
+		writeBusy(w)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"challengeId": id, "options": creation, "username": e.User.Username})
 }
 
 func (s *Server) handleEnrollFinish(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store") // challenges, and a session cookie
 	if s.throttled(w, r) {
 		return
 	}
@@ -313,6 +326,116 @@ func (s *Server) createCredential(user index.User, creds []index.Credential, ch 
 	return s.wa.CreateCredential(auth.WebAuthnUser{User: user, Credentials: creds}, ch.Session, parsed)
 }
 
+// userKey is the owner a signed-in user's begun ceremonies are stored under.
+func userKey(p Principal) string { return "user:" + strconv.FormatInt(p.UserID, 10) }
+
+// writeBusy answers when the challenge store is full of other people's
+// ceremonies.
+func writeBusy(w http.ResponseWriter) {
+	w.Header().Set("Retry-After", "30")
+	writeError(w, http.StatusServiceUnavailable, "too many sign-ins are in progress; try again in a moment")
+}
+
+// ---- confirming with a passkey -----------------------------------------------
+
+// A session that has gone a few minutes without a passkey proving presence
+// can't do the "fresh" routes (add or remove a passkey, issue sign-in links,
+// manage users). It confirms with one of the user's own passkeys here, which
+// is the same two-call ceremony as sign-in but bound to the signed-in user.
+
+func (s *Server) handleReauthBegin(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if s.throttled(w, r) {
+		return
+	}
+	p := principalFrom(r)
+	user, ok, err := s.idx.GetUser(p.UserID)
+	if err != nil || !ok {
+		writeError(w, http.StatusInternalServerError, "could not load your account")
+		return
+	}
+	creds, err := s.idx.ListCredentials(p.UserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	assertion, session, err := s.wa.BeginLogin(auth.WebAuthnUser{User: user, Credentials: creds}, auth.LoginOptions()...)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not start the confirmation")
+		return
+	}
+	id, ok := s.challenges.Put(userKey(p), auth.Challenge{Kind: auth.KindReauth, Session: *session, UserID: p.UserID})
+	if !ok {
+		writeBusy(w)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"challengeId": id, "options": assertion})
+}
+
+func (s *Server) handleReauthFinish(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if s.throttled(w, r) {
+		return
+	}
+	p := principalFrom(r)
+	ch, ok := s.takeChallenge(w, r, auth.KindReauth)
+	if !ok {
+		return
+	}
+	if ch.UserID != p.UserID { // someone else's challenge id
+		writeError(w, http.StatusBadRequest, "this attempt expired or was already used; start again")
+		return
+	}
+	body, ok := readBody(w, r)
+	if !ok {
+		return
+	}
+	fail := func(err error) {
+		s.limiter.Fail(clientIP(r))
+		log.Printf("auth: confirmation failed user=%s ip=%s: %v", p.Username, clientIP(r), err)
+		writeError(w, http.StatusUnauthorized, "confirmation failed")
+	}
+	parsed, err := protocol.ParseCredentialRequestResponseBytes(body)
+	if err != nil {
+		fail(err)
+		return
+	}
+	user, ok, err := s.idx.GetUser(p.UserID)
+	if err != nil || !ok {
+		writeError(w, http.StatusInternalServerError, "could not load your account")
+		return
+	}
+	creds, err := s.idx.ListCredentials(p.UserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	cred, err := s.wa.ValidateLogin(auth.WebAuthnUser{User: user, Credentials: creds}, ch.Session, parsed)
+	if err != nil {
+		fail(err)
+		return
+	}
+	for i := range creds {
+		if string(creds[i].CredentialID) != string(cred.ID) {
+			continue
+		}
+		if cred.Authenticator.CloneWarning {
+			log.Printf("auth: WARNING confirmation with passkey %d (%q) of %s reported a non-increasing sign count; the authenticator may be cloned", creds[i].ID, creds[i].Label, user)
+		}
+		if err := s.idx.RecordCredentialUse(creds[i].ID, cred.Authenticator.SignCount, cred.Flags.BackupState, false); err != nil {
+			writeError(w, http.StatusInternalServerError, "could not record the confirmation")
+			return
+		}
+	}
+	if err := s.idx.MarkSessionVerified(p.SessionID, time.Now()); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not record the confirmation")
+		return
+	}
+	s.limiter.Succeed(clientIP(r))
+	log.Printf("auth: confirmation ok user=%s ip=%s", p.Username, clientIP(r))
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // ---- passkeys of the signed-in user ----------------------------------------
 
 type labelInput struct {
@@ -340,7 +463,11 @@ func (s *Server) handleRegisterBegin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "could not start registration")
 		return
 	}
-	id := s.challenges.Put(auth.Challenge{Kind: auth.KindRegister, Session: *session, UserID: p.UserID, Label: cleanLabel(in.Label)})
+	id, ok := s.challenges.Put(userKey(p), auth.Challenge{Kind: auth.KindRegister, Session: *session, UserID: p.UserID, Label: cleanLabel(in.Label)})
+	if !ok {
+		writeBusy(w)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"challengeId": id, "options": creation})
 }
 

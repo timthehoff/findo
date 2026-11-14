@@ -49,6 +49,16 @@ export async function addPasskey(label) {
   return finish('/auth/passkey/register/finish', begin.challengeId, cred);
 }
 
+// reauthenticate proves presence with one of the signed-in user's passkeys, so
+// the server will accept a sensitive change for the next few minutes.
+export async function reauthenticate() {
+  const begin = await postJSON('/auth/reauth/begin');
+  const cred = await navigator.credentials.get({
+    publicKey: PublicKeyCredential.parseRequestOptionsFromJSON(begin.options.publicKey),
+  });
+  return finish('/auth/reauth/finish', begin.challengeId, cred.toJSON());
+}
+
 // friendlyError turns what the browser and server throw into a sentence.
 export function friendlyError(e) {
   if (e && e.name === 'NotAllowedError') return 'Cancelled, or it timed out. Try again.';

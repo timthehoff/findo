@@ -320,7 +320,28 @@ comment for the `curl` command that registers it as a volume).
   so a ciphertext copied to another volume or owner won't open; an ownerless
   legacy volume uses none until adopted, and reassigning an owner reseals.
   Volume names are unique per owner. Deleting a user deletes their volumes first
-  (the foreign key is deliberately not cascading). Still open on #37: Caddy/HTTPS
+  (the foreign key is deliberately not cascading). **Admin isolation is not a
+  security boundary**: an admin can give themselves any volume
+  (`PUT /volumes/{id}/owner`) or issue anyone a sign-in link and register their own
+  passkey on it; both are logged and visible to the victim, not prevented, so UI
+  and docs must not promise admins "can't read" files, only that the screens
+  don't show them. **Step-up**: a route declared with `f(...)` in `routeSpecs()`
+  (`fresh`) also needs `sessions.verified_at` within `StepUpWindow` (5 min), else
+  `403 {"reauthRequired": true}`; the session is verified by the passkey that
+  created it, and refreshed by `POST /auth/reauth/begin|finish` (the sign-in
+  ceremony restricted to the user's own passkeys; it doesn't stamp last login).
+  Fresh routes are pinned in `stepup_test.go` (`wantFresh`): add/remove passkey,
+  create/update/delete user, issue a sign-in link, change a volume's owner. On the
+  front end `js/confirm.js` `withConfirm(action, {retry})` shows a dialog whose
+  button opens the passkey prompt (browsers want a click per prompt, so a prompt
+  is never opened behind the person's back; adding a passkey asks for a second
+  press instead of chaining two prompts). Begun ceremonies (`auth.Challenges`)
+  are stored per owner (an address, or `user:<id>`): each may hold 10 and only
+  evicts its own oldest; the store as a whole refuses new ones (503) when full
+  rather than evicting anyone else's. Authenticated responses are
+  `Cache-Control: private, no-store` (set in `guard`); file content is
+  `private, no-cache` (revalidated through the guard on each use); the public
+  sign-in/enrollment ceremonies are `no-store`. Still open on #37: Caddy/HTTPS
   in the installer (PR 3).
 - Network exposure: the server listens on `127.0.0.1:8080`
   by default and logs a warning when `HTTP_ADDR` is widened (plain HTTP, where

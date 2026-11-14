@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"strconv"
 	"testing"
 	"time"
 
@@ -26,7 +27,7 @@ func TestChallengesAreSingleUseAndExpire(t *testing.T) {
 	cs := NewChallenges()
 	cs.now = func() time.Time { return now }
 
-	id := cs.Put(Challenge{Kind: KindLogin})
+	id, _ := cs.Put("a", Challenge{Kind: KindLogin})
 	if c, ok := cs.Take(id); !ok || c.Kind != KindLogin {
 		t.Fatalf("Take = %+v %v", c, ok)
 	}
@@ -37,24 +38,63 @@ func TestChallengesAreSingleUseAndExpire(t *testing.T) {
 		t.Fatal("an unknown challenge resolved")
 	}
 
-	id = cs.Put(Challenge{Kind: KindLogin})
+	id, _ = cs.Put("a", Challenge{Kind: KindLogin})
 	now = now.Add(ChallengeTTL + time.Second)
 	if _, ok := cs.Take(id); ok {
 		t.Fatal("an expired challenge resolved")
 	}
 }
 
-func TestChallengeStoreIsBounded(t *testing.T) {
+// One client flooding begin must only ever push out its own ceremonies.
+func TestAnOwnerCanOnlyEvictItsOwnChallenges(t *testing.T) {
 	cs := NewChallenges()
-	first := cs.Put(Challenge{Kind: KindLogin})
-	for i := 0; i < maxChallenges+10; i++ {
-		cs.Put(Challenge{Kind: KindLogin})
+	victim, _ := cs.Put("victim", Challenge{Kind: KindLogin})
+	first, _ := cs.Put("attacker", Challenge{Kind: KindLogin})
+	for i := 0; i < 500; i++ {
+		cs.Put("attacker", Challenge{Kind: KindLogin})
 	}
-	if len(cs.m) > maxChallenges {
-		t.Fatalf("store grew to %d", len(cs.m))
+	if _, ok := cs.Take(victim); !ok {
+		t.Fatal("another owner's flood evicted the victim's challenge")
 	}
 	if _, ok := cs.Take(first); ok {
-		t.Fatal("the oldest challenge should have been dropped first")
+		t.Fatal("the flooder's own oldest should have been dropped")
+	}
+	n := 0
+	for _, c := range cs.m {
+		if c.owner == "attacker" {
+			n++
+		}
+	}
+	if n != maxPerOwner {
+		t.Fatalf("attacker holds %d, want the cap of %d", n, maxPerOwner)
+	}
+}
+
+// With every slot taken by live ceremonies, new ones are refused rather than
+// evicting someone else's; expired ones free their slots.
+func TestAFullStoreRefusesNewChallengesInsteadOfEvicting(t *testing.T) {
+	now := time.Unix(1000, 0)
+	cs := NewChallenges()
+	cs.now = func() time.Time { return now }
+	var first string
+	for i := 0; i < maxChallenges; i++ {
+		id, ok := cs.Put("owner-"+strconv.Itoa(i), Challenge{Kind: KindLogin})
+		if !ok {
+			t.Fatalf("refused %d before the store was full", i)
+		}
+		if i == 0 {
+			first = id
+		}
+	}
+	if _, ok := cs.Put("newcomer", Challenge{Kind: KindLogin}); ok {
+		t.Fatal("a full store of live challenges accepted another")
+	}
+	if _, ok := cs.Take(first); !ok {
+		t.Fatal("refusing a newcomer must not evict anyone")
+	}
+	now = now.Add(ChallengeTTL + time.Second)
+	if _, ok := cs.Put("newcomer", Challenge{Kind: KindLogin}); !ok {
+		t.Fatal("expired challenges should free their slots")
 	}
 }
 

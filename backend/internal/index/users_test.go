@@ -3,6 +3,7 @@ package index
 import (
 	"bytes"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 )
@@ -86,7 +87,7 @@ func TestRecordCredentialUseStoresCounterAndLastLogin(t *testing.T) {
 	idx := openTest(t)
 	u := mkUser(t, idx, "u", RoleUser)
 	c := mkCred(t, idx, u.ID, "one")
-	if err := idx.RecordCredentialUse(c.ID, 7, true); err != nil {
+	if err := idx.RecordCredentialUse(c.ID, 7, true, true); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := idx.ListCredentials(u.ID)
@@ -452,5 +453,70 @@ func TestQueriesAreLimitedToTheScopeGiven(t *testing.T) {
 	}
 	if st, _ := idx.Stats([]int64{2}); st.FileCount != 1 {
 		t.Errorf("Stats({2}) = %+v", st)
+	}
+}
+
+func TestSessionsStartVerifiedAndCanBeConfirmedAgain(t *testing.T) {
+	idx := openTest(t)
+	u := mkUser(t, idx, "u", RoleUser)
+	sid, _ := idx.CreateSession(u.ID, nil, []byte("t"), SessionTTL, "", "")
+
+	su, _, _ := idx.SessionByToken([]byte("t"))
+	if time.Since(su.VerifiedAt) > time.Minute {
+		t.Fatalf("a new session is verified by the sign-in itself: %v", su.VerifiedAt)
+	}
+	old := time.Now().Add(-time.Hour)
+	if err := idx.MarkSessionVerified(sid, old); err != nil {
+		t.Fatal(err)
+	}
+	if su, _, _ = idx.SessionByToken([]byte("t")); time.Since(su.VerifiedAt) < 59*time.Minute {
+		t.Fatalf("backdated verification = %v", su.VerifiedAt)
+	}
+	if err := idx.MarkSessionVerified(sid, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if su, _, _ = idx.SessionByToken([]byte("t")); time.Since(su.VerifiedAt) > time.Minute {
+		t.Fatalf("confirming should bring it up to date: %v", su.VerifiedAt)
+	}
+	// Using the session doesn't count as confirming it.
+	idx.MarkSessionVerified(sid, old)
+	idx.db.Exec(`UPDATE sessions SET last_used_at = now() - interval '1 hour' WHERE id = $1`, sid)
+	idx.SessionByToken([]byte("t")) // slides the expiry
+	if su, _, _ = idx.SessionByToken([]byte("t")); time.Since(su.VerifiedAt) < 59*time.Minute {
+		t.Fatal("sliding a session's expiry must not renew its verification")
+	}
+}
+
+func TestConfirmingWithAPasskeyIsNotASignIn(t *testing.T) {
+	idx := openTest(t)
+	u := mkUser(t, idx, "u", RoleUser)
+	c := mkCred(t, idx, u.ID, "one")
+	if err := idx.RecordCredentialUse(c.ID, 3, false, false); err != nil {
+		t.Fatal(err)
+	}
+	if reloaded, _, _ := idx.GetUser(u.ID); reloaded.LastLoginAt != "" {
+		t.Fatalf("a confirmation stamped last login: %q", reloaded.LastLoginAt)
+	}
+	if got, _ := idx.ListCredentials(u.ID); got[0].SignCount != 3 || got[0].LastUsedAt == "" {
+		t.Fatalf("the passkey's counter and last use should still be recorded: %+v", got[0])
+	}
+}
+
+// Two removals at once must not leave an account with no passkey.
+func TestConcurrentRemovalsLeaveAPasskey(t *testing.T) {
+	for round := 0; round < 10; round++ {
+		idx := openTest(t)
+		u := mkUser(t, idx, "u", RoleUser)
+		a, b := mkCred(t, idx, u.ID, "a"), mkCred(t, idx, u.ID, "b")
+
+		var wg sync.WaitGroup
+		for _, id := range []int64{a.ID, b.ID} {
+			wg.Add(1)
+			go func() { defer wg.Done(); idx.DeleteCredential(u.ID, id) }()
+		}
+		wg.Wait()
+		if got, _ := idx.ListCredentials(u.ID); len(got) != 1 {
+			t.Fatalf("round %d: %d passkeys left, want exactly 1", round, len(got))
+		}
 	}
 }

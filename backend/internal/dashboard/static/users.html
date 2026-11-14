@@ -23,9 +23,9 @@
     <h1>Users</h1>
     <button class="primary" id="addUserBtn">Add user</button>
   </div>
-  <p class="muted" style="font-size:0.85rem">Everyone has their own volumes and sees only those. Administrators can add and disable people, but can't browse anyone else's files.</p>
+  <p class="muted" style="font-size:0.85rem">Everyone has their own volumes and sees only those, and the screens never show an administrator anyone else's files. But an administrator <strong>can</strong> take over any account: by handing a volume to themselves, or by making a sign-in link for someone and registering their own passkey on it. Only make people administrators if you'd trust them with everyone's files. Both leave a trace the person can see (a lost volume, a passkey they didn't add) and are logged.</p>
 
-  <ul class="rows" id="users"><li class="muted">Loading…</li></ul>
+<ul class="rows" id="users"><li class="muted">Loading…</li></ul>
 
   <dialog id="userDialog">
     <form id="userForm">

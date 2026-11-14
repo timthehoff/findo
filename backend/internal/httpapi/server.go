@@ -97,10 +97,12 @@ type Server struct {
 
 	// Passkey sign-in. publicURL is where people reach Findo and what passkeys
 	// are bound to (SetPublicURL); challenges and limiter are in memory.
-	publicURL  *url.URL
-	wa         *webauthn.WebAuthn
-	challenges *auth.Challenges
-	limiter    *auth.Limiter
+	// stepUpWindow is how recent a passkey confirmation fresh routes need.
+	stepUpWindow time.Duration
+	publicURL    *url.URL
+	wa           *webauthn.WebAuthn
+	challenges   *auth.Challenges
+	limiter      *auth.Limiter
 
 	// newSMB constructs the SMB client for a volume; overridden in tests to
 	// inject a fake NAS instead of dialing a real one.
@@ -136,8 +138,9 @@ func NewServer(idx *index.Index, masterKey []byte, version string) *Server {
 		contentTimeout: defaultContentTimeout,
 		contentIdle:    defaultContentIdle,
 
-		challenges: auth.NewChallenges(),
-		limiter:    auth.NewLimiter(),
+		stepUpWindow: StepUpWindow,
+		challenges:   auth.NewChallenges(),
+		limiter:      auth.NewLimiter(),
 	}
 	// Until main says otherwise: reachable from this machine only.
 	if err := s.SetPublicURL(&url.URL{Scheme: "http", Host: "localhost:8080"}); err != nil {
@@ -510,6 +513,9 @@ func (s *Server) handleContent(w http.ResponseWriter, r *http.Request) {
 	defer f.Close()
 
 	setContentHeaders(w.Header(), info.Name(), r.URL.Query().Get("download") == "1")
+	// A browser may keep the file but must ask before reusing it, so someone
+	// else on the same browser can't be shown it without the server's say-so.
+	w.Header().Set("Cache-Control", "private, no-cache")
 	http.ServeContent(w, r, info.Name(), info.ModTime(), f)
 }
 

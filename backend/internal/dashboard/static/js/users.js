@@ -4,6 +4,7 @@ import { initTheme } from './theme.js';
 import { toast } from './toast.js';
 import { initVersion } from './version.js';
 import { initUser } from './user.js';
+import { withConfirm } from './confirm.js';
 
 initTheme();
 initVersion();
@@ -86,17 +87,17 @@ usersEl.addEventListener('click', async (ev) => {
   try {
     switch (btn.dataset.act) {
       case 'link': {
-        const out = await postJSON(`/users/${id}/enrollment`);
+        const out = await withConfirm(() => postJSON(`/users/${id}/enrollment`));
         showLink(`Sign-in link for ${name}`, 'Open this on their device to register a passkey.', out.enrollmentLink);
         break;
       }
       case 'role':
-        await putJSON(`/users/${id}`, { role: btn.dataset.role });
+        await withConfirm(() => putJSON(`/users/${id}`, { role: btn.dataset.role }));
         toast(`${name} is now ${btn.dataset.role === 'admin' ? 'an administrator' : 'a regular user'}.`, 'success');
         break;
       case 'disabled': {
         const disabled = btn.dataset.disabled === 'true';
-        await putJSON(`/users/${id}`, { disabled });
+        await withConfirm(() => putJSON(`/users/${id}`, { disabled }));
         toast(disabled ? `${name} is disabled and signed out.` : `${name} can sign in again.`, 'success');
         break;
       }
@@ -104,7 +105,7 @@ usersEl.addEventListener('click', async (ev) => {
         const n = Number(btn.dataset.volumes);
         const also = n ? ` Their ${n} volume${n === 1 ? '' : 's'} and everything indexed under ${n === 1 ? 'it' : 'them'} will be deleted too.` : '';
         if (!confirm(`Delete ${name}?${also} This cannot be undone.`)) return;
-        await deleteJSON(`/users/${id}`);
+        await withConfirm(() => deleteJSON(`/users/${id}`));
         toast(`${name} deleted.`, 'success');
         break;
       }
@@ -125,10 +126,11 @@ document.getElementById('userCancel').addEventListener('click', () => userDialog
 document.getElementById('userForm').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   try {
-    const out = await postJSON('/users', {
+    const body = {
       username: document.getElementById('uName').value.trim(),
       role: document.getElementById('uRole').value,
-    });
+    };
+    const out = await withConfirm(() => postJSON('/users', body));
     userDialog.close();
     showLink(`Welcome, ${out.user.username}`, 'Open this on their device to register a passkey.', out.enrollmentLink);
     load();
