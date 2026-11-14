@@ -65,7 +65,7 @@ func TestUpsertBatchInsertsAndUpdates(t *testing.T) {
 		t.Fatalf("update not applied: %+v", got)
 	}
 
-	all, err := idx.Search(testVolume, "budget", 10, true, TimeRange{})
+	all, err := idx.Search([]int64{testVolume}, "budget", 10, true, TimeRange{})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -213,7 +213,7 @@ func TestStreamUpsertBatches(t *testing.T) {
 		t.Fatalf("expected 5 written, got %d", written)
 	}
 
-	all, err := idx.Search(testVolume, "f", 10, true, TimeRange{})
+	all, err := idx.Search([]int64{testVolume}, "f", 10, true, TimeRange{})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -262,7 +262,7 @@ func TestSearchAcrossAllVolumes(t *testing.T) {
 		t.Fatalf("UpsertBatch: %v", err)
 	}
 
-	all, err := idx.Search(0, "report", 10, true, TimeRange{})
+	all, err := idx.Search([]int64{1, 2}, "report", 10, true, TimeRange{})
 	if err != nil {
 		t.Fatalf("Search across all volumes: %v", err)
 	}
@@ -270,7 +270,7 @@ func TestSearchAcrossAllVolumes(t *testing.T) {
 		t.Fatalf("expected 2 results across both volumes, got %d: %+v", len(all), all)
 	}
 
-	scoped, err := idx.Search(1, "report", 10, true, TimeRange{})
+	scoped, err := idx.Search([]int64{1}, "report", 10, true, TimeRange{})
 	if err != nil {
 		t.Fatalf("Search scoped to volume 1: %v", err)
 	}
@@ -435,7 +435,7 @@ func TestHiddenEntriesAreExcludedUnlessRequested(t *testing.T) {
 		return out
 	}
 
-	visible, err := idx.Search(testVolume, "report", 50, false, TimeRange{})
+	visible, err := idx.Search([]int64{testVolume}, "report", 50, false, TimeRange{})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -443,7 +443,7 @@ func TestHiddenEntriesAreExcludedUnlessRequested(t *testing.T) {
 		t.Fatalf("hidden search = %v, want only docs/report.md and report.txt (no dotfiles, nothing inside a dot-dir)", got)
 	}
 
-	all, err := idx.Search(0, "report", 50, true, TimeRange{})
+	all, err := idx.Search([]int64{testVolume}, "report", 50, true, TimeRange{})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -479,7 +479,7 @@ func TestSearchModifiedRange(t *testing.T) {
 		t.Fatal(err)
 	}
 	names := func(r TimeRange) []string {
-		got, err := idx.Search(testVolume, "", 10, true, r)
+		got, err := idx.Search([]int64{testVolume}, "", 10, true, r)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -535,7 +535,7 @@ func TestSearchIsCaseInsensitiveAndTreatsWildcardsLiterally(t *testing.T) {
 	}
 
 	for q, want := range map[string]string{"RÉSUMÉ": "Résumé.PDF", "pdf": "Résumé.PDF", "%_": "100%_done.txt"} {
-		got, err := idx.Search(testVolume, q, 10, true, TimeRange{})
+		got, err := idx.Search([]int64{testVolume}, q, 10, true, TimeRange{})
 		if err != nil || len(got) != 1 || got[0].Name != want {
 			t.Errorf("Search(%q) = %+v, err=%v; want only %q", q, got, err, want)
 		}

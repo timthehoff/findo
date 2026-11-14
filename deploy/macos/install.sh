@@ -127,8 +127,8 @@ fi
 launchctl bootstrap "$domain" "$PLIST"
 
 echo "Findo is running: see $LOG_DIR/findo.log (open http://localhost:8080/)"
-if grep -q '^HTTP_ADDR=127\.0\.0\.1' "$DATA_DIR/.env" 2>/dev/null; then
-  echo "It only accepts connections from this Mac. To reach it from your phone, set"
-  echo "HTTP_ADDR=:8080 in $DATA_DIR/.env and re-run this script. Findo has no login yet,"
-  echo "so do that only on a network you trust."
-fi
+echo "People sign in with passkeys. Create the first account (an administrator) with:"
+echo "  $BIN_DIR/findo-server user add --admin <name>"
+echo "run from $DATA_DIR, and open the link it prints. To reach Findo from other devices,"
+echo "put a TLS proxy in front of it and set FINDO_PUBLIC_URL in $DATA_DIR/.env;"
+echo "see docs/macos-install.md."

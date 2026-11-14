@@ -31,8 +31,11 @@ func ParseKey(b64 string) ([]byte, error) {
 
 // Encrypt seals plaintext under key, returning nonce||ciphertext. The nonce
 // travels alongside the ciphertext since GCM nonces aren't secret, just
-// required to be unique per encryption under the same key.
-func Encrypt(key, plaintext []byte) ([]byte, error) {
+// required to be unique per encryption under the same key. aad is
+// authenticated but not stored: Decrypt only succeeds with the same value, so
+// a ciphertext copied to a different row (another volume or owner) fails to
+// open. Pass nil when there is no context to bind.
+func Encrypt(key, plaintext, aad []byte) ([]byte, error) {
 	gcm, err := newGCM(key)
 	if err != nil {
 		return nil, err
@@ -41,12 +44,12 @@ func Encrypt(key, plaintext []byte) ([]byte, error) {
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return nil, fmt.Errorf("generate nonce: %w", err)
 	}
-	return gcm.Seal(nonce, nonce, plaintext, nil), nil
+	return gcm.Seal(nonce, nonce, plaintext, aad), nil
 }
 
-// Decrypt reverses Encrypt, authenticating the ciphertext before returning
-// the plaintext.
-func Decrypt(key, data []byte) ([]byte, error) {
+// Decrypt reverses Encrypt, authenticating the ciphertext (and aad, which must
+// match what it was sealed with) before returning the plaintext.
+func Decrypt(key, data, aad []byte) ([]byte, error) {
 	gcm, err := newGCM(key)
 	if err != nil {
 		return nil, err
@@ -55,7 +58,7 @@ func Decrypt(key, data []byte) ([]byte, error) {
 		return nil, fmt.Errorf("ciphertext shorter than nonce")
 	}
 	nonce, ciphertext := data[:gcm.NonceSize()], data[gcm.NonceSize():]
-	return gcm.Open(nil, nonce, ciphertext, nil)
+	return gcm.Open(nil, nonce, ciphertext, aad)
 }
 
 func newGCM(key []byte) (cipher.AEAD, error) {

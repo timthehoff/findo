@@ -9,7 +9,7 @@ import (
 
 func TestLandingPageIsSearchAndOldURLRedirects(t *testing.T) {
 	srv, _, _ := newTestServer(t)
-	h := srv.Routes()
+	h := authRoutes(srv)
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
@@ -34,13 +34,13 @@ func TestTextViewerPageIsServed(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 	for _, target := range []string{"/text.html", "/css/text.css", "/js/text.js"} {
 		rec := httptest.NewRecorder()
-		srv.Routes().ServeHTTP(rec, httptest.NewRequest("GET", target, nil))
+		authRoutes(srv).ServeHTTP(rec, httptest.NewRequest("GET", target, nil))
 		if rec.Code != http.StatusOK {
 			t.Errorf("GET %s = %d", target, rec.Code)
 		}
 	}
 	rec := httptest.NewRecorder()
-	srv.Routes().ServeHTTP(rec, httptest.NewRequest("GET", "/text.html", nil))
+	authRoutes(srv).ServeHTTP(rec, httptest.NewRequest("GET", "/text.html", nil))
 	if !strings.Contains(rec.Body.String(), `id="chunks"`) {
 		t.Fatal("/text.html should be the viewer page")
 	}

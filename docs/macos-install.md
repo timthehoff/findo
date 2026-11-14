@@ -37,26 +37,68 @@ Open `http://localhost:8080/` and add your NAS on the Volumes page. Register it
 by IP or a real DNS name rather than a `.local` mDNS name, which launchd
 services may not resolve.
 
-## Reaching it from your phone (and the security trade-off)
+## Accounts and signing in
 
-By default Findo only accepts connections from this Mac. **Findo has no login.**
-Anyone who can connect can search every connected share and download its files
-with the NAS credentials you gave Findo, and the connection is plain HTTP. To
-use it from a phone or another computer, set `HTTP_ADDR=:8080` in
-`~/Library/Application Support/Findo/.env` and re-run the install script, but
-only on a network you trust (not shared Wi-Fi, not port-forwarded). The server
-logs a warning when it listens beyond this Mac.
+Everyone signs in with a **passkey** (Face ID, Touch ID, or a password manager's
+passkey); there are no passwords. Each person has their own volumes, with their
+own NAS login, and can only search, browse and download their own. Administrators
+add and disable users and can see other users' volume *names and owners*, never
+their files.
 
-Even on your network, Findo refuses requests whose `Host` isn't a name it's meant
-to be reached by (localhost, IP addresses, single-word names, `*.local`, `*.lan`,
-this Mac's hostname), and refuses state-changing requests from other web origins.
-That stops a malicious web page in your browser from using your Findo, but it is
-not a login. If you reach Findo by another name (a Tailscale name, a reverse
-proxy), list it in `.env`:
+Create the first account, an administrator, on this Mac, from the config
+directory:
+
+```sh
+cd ~/Library/Application\ Support/Findo
+~/.local/bin/findo-server user add --admin <name>
+```
+
+It prints a one-time link (valid 15 minutes) that registers that person's first
+passkey. Volumes that were configured before accounts existed go to this first
+admin. Add more people with `user add <name>` (or on the Users page), and give
+someone a fresh link, for a new device or after losing every passkey, with
+`findo-server user enroll <name>`. Register a passkey on each device or password
+manager you use, so losing one doesn't lock you out; the Account page can add
+more once you're signed in.
+
+**What this protects, and what it doesn't.** It keeps users apart, and keeps
+strangers on your network out. It does not hide anything from whoever runs the
+server: Findo holds every volume's NAS password (it has to, to crawl unattended)
+and its database holds every user's index and extracted text. Give Findo
+read-only NAS accounts.
+
+### The address passkeys are bound to
+
+Browsers only allow passkeys over HTTPS (or on `localhost`), and a passkey is
+bound to the host name it was created on, so **settle the HTTPS name before
+anyone enrolls**; changing it later means everyone enrolls again. Set it in
+`~/Library/Application Support/Findo/.env`:
 
 ```
-FINDO_ALLOWED_HOSTS=findo.tail1234.ts.net,findo.example.com
+FINDO_PUBLIC_URL=https://findo.example.com
 ```
+
+Without it Findo uses `http://localhost:8080`, which works only in a browser on
+this Mac. Findo itself serves plain HTTP on `127.0.0.1:8080`; put a TLS proxy
+such as [Caddy](https://caddyserver.com/) in front, which passes the `Host`
+header through and sets `X-Forwarded-Proto` (Findo trusts that header, for the
+cookie's `Secure` flag, only from this Mac). Don't widen `HTTP_ADDR` to reach it
+from other devices: that serves plain HTTP, where passkeys won't work and
+sessions aren't protected. The server logs a warning if you do.
+
+The public URL's host is allowed automatically. Findo also refuses requests whose
+`Host` isn't a name it's meant to be reached by (localhost, IP addresses,
+single-word names, `*.local`, `*.lan`, this Mac's hostname), and refuses
+state-changing requests from other web origins, which stops a malicious page in
+your browser from using your Findo. Other names you reach it by go in `.env`:
+
+```
+FINDO_ALLOWED_HOSTS=findo.tail1234.ts.net
+```
+
+Sign-in failures are throttled per address and every sign-in, success or failure,
+is logged to `~/Library/Logs/Findo/findo.log`. A passkey whose sign-in counter
+goes backwards is logged as a possibly cloned authenticator.
 
 ## Checking on it
 

@@ -8,7 +8,7 @@ import (
 func TestCreateAndGetVolume(t *testing.T) {
 	idx := openTest(t)
 
-	v, err := idx.CreateVolume("Home NAS", "nas.local", "media", "findo", []byte("ciphertext"))
+	v, err := idx.CreateVolume(testOwner(t, idx), "Home NAS", "nas.local", "media", "findo", sealed([]byte("ciphertext")))
 	if err != nil {
 		t.Fatalf("CreateVolume: %v", err)
 	}
@@ -34,11 +34,11 @@ func TestCreateAndGetVolume(t *testing.T) {
 func TestListVolumesOrdersByCreation(t *testing.T) {
 	idx := openTest(t)
 
-	first, err := idx.CreateVolume("First", "h1", "s1", "u1", []byte("x"))
+	first, err := idx.CreateVolume(testOwner(t, idx), "First", "h1", "s1", "u1", sealed([]byte("x")))
 	if err != nil {
 		t.Fatalf("CreateVolume: %v", err)
 	}
-	second, err := idx.CreateVolume("Second", "h2", "s2", "u2", []byte("x"))
+	second, err := idx.CreateVolume(testOwner(t, idx), "Second", "h2", "s2", "u2", sealed([]byte("x")))
 	if err != nil {
 		t.Fatalf("CreateVolume: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestListVolumesOrdersByCreation(t *testing.T) {
 func TestUpdateVolumeKeepsPasswordWhenNotProvided(t *testing.T) {
 	idx := openTest(t)
 
-	v, err := idx.CreateVolume("Vol", "host", "share", "user", []byte("original"))
+	v, err := idx.CreateVolume(testOwner(t, idx), "Vol", "host", "share", "user", sealed([]byte("original")))
 	if err != nil {
 		t.Fatalf("CreateVolume: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestUpdateVolumeKeepsPasswordWhenNotProvided(t *testing.T) {
 func TestUpdateVolumeReplacesPasswordWhenProvided(t *testing.T) {
 	idx := openTest(t)
 
-	v, err := idx.CreateVolume("Vol", "host", "share", "user", []byte("original"))
+	v, err := idx.CreateVolume(testOwner(t, idx), "Vol", "host", "share", "user", sealed([]byte("original")))
 	if err != nil {
 		t.Fatalf("CreateVolume: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestUpdateVolumeReplacesPasswordWhenProvided(t *testing.T) {
 func TestDeleteVolumeCascadesFilesAndCrawlRuns(t *testing.T) {
 	idx := openTest(t)
 
-	v, err := idx.CreateVolume("Vol", "host", "share", "user", []byte("x"))
+	v, err := idx.CreateVolume(testOwner(t, idx), "Vol", "host", "share", "user", sealed([]byte("x")))
 	if err != nil {
 		t.Fatalf("CreateVolume: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestDeleteVolumeCascadesFilesAndCrawlRuns(t *testing.T) {
 func TestSetVolumeTestResult(t *testing.T) {
 	idx := openTest(t)
 
-	v, err := idx.CreateVolume("Vol", "host", "share", "user", []byte("x"))
+	v, err := idx.CreateVolume(testOwner(t, idx), "Vol", "host", "share", "user", sealed([]byte("x")))
 	if err != nil {
 		t.Fatalf("CreateVolume: %v", err)
 	}
@@ -174,15 +174,15 @@ func TestSetVolumeTestResult(t *testing.T) {
 func TestVolumeNamesAreUniqueCaseInsensitively(t *testing.T) {
 	idx := openTest(t)
 
-	a, err := idx.CreateVolume("Home NAS", "a", "s", "u", []byte("x"))
+	a, err := idx.CreateVolume(testOwner(t, idx), "Home NAS", "a", "s", "u", sealed([]byte("x")))
 	if err != nil {
 		t.Fatalf("CreateVolume: %v", err)
 	}
-	if _, err := idx.CreateVolume("home nas", "b", "s", "u", []byte("x")); !errors.Is(err, ErrVolumeNameTaken) {
+	if _, err := idx.CreateVolume(testOwner(t, idx), "home nas", "b", "s", "u", sealed([]byte("x"))); !errors.Is(err, ErrVolumeNameTaken) {
 		t.Fatalf("duplicate create: got %v, want ErrVolumeNameTaken", err)
 	}
 
-	b, err := idx.CreateVolume("Other", "b", "s", "u", []byte("x"))
+	b, err := idx.CreateVolume(testOwner(t, idx), "Other", "b", "s", "u", sealed([]byte("x")))
 	if err != nil {
 		t.Fatalf("CreateVolume: %v", err)
 	}

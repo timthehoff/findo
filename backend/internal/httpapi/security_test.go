@@ -20,18 +20,18 @@ func TestOversizedJSONBodiesAreRejected(t *testing.T) {
 		"PUT":  "/volumes/" + strconv.FormatInt(volID, 10),
 	} {
 		req, rr := rawJSON(method, target, big)
-		srv.Routes().ServeHTTP(rr, req)
+		authRoutes(srv).ServeHTTP(rr, req)
 		if rr.Code != http.StatusRequestEntityTooLarge {
 			t.Errorf("%s %s with a %d-byte body = %d %s, want 413", method, target, len(big), rr.Code, rr.Body)
 		}
 	}
 	req, rr := rawJSON("PUT", "/settings", `{"content":{"paused":`+strings.Repeat(" ", maxJSONBody)+`true}}`)
-	srv.Routes().ServeHTTP(rr, req)
+	authRoutes(srv).ServeHTTP(rr, req)
 	if rr.Code != http.StatusRequestEntityTooLarge {
 		t.Errorf("PUT /settings oversized = %d, want 413", rr.Code)
 	}
 	req, rr = rawJSON("POST", "/volumes/test", `{"host":"`+strings.Repeat("h", maxJSONBody)+`"}`)
-	srv.Routes().ServeHTTP(rr, req)
+	authRoutes(srv).ServeHTTP(rr, req)
 	if rr.Code != http.StatusRequestEntityTooLarge {
 		t.Errorf("POST /volumes/test oversized = %d, want 413", rr.Code)
 	}
@@ -41,7 +41,7 @@ func TestOversizedJSONBodiesAreRejected(t *testing.T) {
 		t.Errorf("a normal body = %d", rec.Code)
 	}
 	req, rr = rawJSON("PUT", "/settings", `{not json`)
-	srv.Routes().ServeHTTP(rr, req)
+	authRoutes(srv).ServeHTTP(rr, req)
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("malformed JSON = %d, want 400", rr.Code)
 	}

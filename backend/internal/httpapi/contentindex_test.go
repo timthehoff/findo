@@ -52,7 +52,15 @@ func contentStateOf(t *testing.T, srv *Server, volID int64, path string) (conten
 // attempted counts the volume's files with any recorded outcome.
 func attempted(t *testing.T, srv *Server) (done, other int) {
 	t.Helper()
-	prog, err := srv.idx.ContentProgress(extract.Supported(), 1<<40)
+	vols, err := srv.idx.ListVolumes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var scope []int64
+	for _, v := range vols {
+		scope = append(scope, v.ID)
+	}
+	prog, err := srv.idx.ContentProgress(scope, extract.Supported(), 1<<40)
 	if err != nil {
 		t.Fatal(err)
 	}

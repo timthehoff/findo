@@ -25,12 +25,11 @@ func newTestServer(t *testing.T) (*Server, *fakeSMB, int64) {
 
 	key := make([]byte, crypto.KeySize)
 	srv := NewServer(idx, key, "dev")
+	owner := newDefaultAdmin(t, srv)
 
-	passwordEnc, err := crypto.Encrypt(key, []byte("pass"))
-	if err != nil {
-		t.Fatalf("Encrypt: %v", err)
-	}
-	vol, err := idx.CreateVolume("test volume", "host", "share", "user", passwordEnc)
+	vol, err := idx.CreateVolume(owner.ID, "test volume", "host", "share", "user", func(id int64) ([]byte, error) {
+		return sealPassword(key, id, &owner.ID, "pass")
+	})
 	if err != nil {
 		t.Fatalf("CreateVolume: %v", err)
 	}
@@ -52,7 +51,7 @@ func TestCrawlIndexesDiscoveredFiles(t *testing.T) {
 		t.Fatalf("Crawl: %v", err)
 	}
 
-	files, err := srv.idx.Search(volID, "", 10, true, index.TimeRange{})
+	files, err := srv.idx.Search([]int64{volID}, "", 10, true, index.TimeRange{})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}

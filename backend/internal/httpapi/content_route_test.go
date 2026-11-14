@@ -11,7 +11,7 @@ import (
 // through to the static dashboard.
 func TestContentRouteAcceptsFilenameSuffix(t *testing.T) {
 	srv, _, volID := newTestServer(t)
-	h := srv.Routes()
+	h := authRoutes(srv)
 
 	for _, url := range []string{
 		"/files/content?volume=%d",

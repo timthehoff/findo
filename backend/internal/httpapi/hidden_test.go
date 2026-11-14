@@ -18,7 +18,7 @@ func TestSearchAndListHideDotfilesUnlessAsked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := srv.Routes()
+	h := authRoutes(srv)
 	count := func(url string) int {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequest("GET", url, nil))

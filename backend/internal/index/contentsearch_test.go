@@ -49,7 +49,11 @@ func indexed(t *testing.T, idx *Index, vol int64, path string, mod int64, chunks
 
 func contentPaths(t *testing.T, idx *Index, vol int64, q string, hidden bool, r TimeRange) []string {
 	t.Helper()
-	got, err := idx.SearchContent(vol, q, 50, hidden, r)
+	scope := []int64{vol}
+	if vol == 0 { // 0 here means "every volume in the test"
+		scope = allVolumeIDs(t, idx)
+	}
+	got, err := idx.SearchContent(scope, q, 50, hidden, r)
 	if err != nil {
 		t.Fatalf("SearchContent(%q): %v", q, err)
 	}
@@ -86,7 +90,7 @@ func TestSearchContentMatchingRules(t *testing.T) {
 
 	// Hostile input must be harmless, not an error.
 	for _, q := range []string{"'; DROP TABLE files; --", "a & | b", "!!!", "( ) : *", "\\", "'''", "foo:* & bar:*"} {
-		if _, err := idx.SearchContent(0, q, 10, true, TimeRange{}); err != nil {
+		if _, err := idx.SearchContent(allVolumeIDs(t, idx), q, 10, true, TimeRange{}); err != nil {
 			t.Errorf("SearchContent(%q) failed: %v", q, err)
 		}
 	}
@@ -100,7 +104,7 @@ func TestSearchContentSnippetHighlightsTheMatch(t *testing.T) {
 		strings.Repeat("More unrelated filler text goes here. ", 20)
 	indexed(t, idx, vol, "plan.txt", 1, long)
 
-	got, err := idx.SearchContent(0, "migration plan", 10, true, TimeRange{})
+	got, err := idx.SearchContent(allVolumeIDs(t, idx), "migration plan", 10, true, TimeRange{})
 	if err != nil || len(got) != 1 {
 		t.Fatalf("got %+v, %v", got, err)
 	}
@@ -125,7 +129,7 @@ func TestSearchContentPicksTheBestChunkPerFile(t *testing.T) {
 		"Closing remarks.")
 	indexed(t, idx, vol, "other.txt", 1, "A single invoice appears here.")
 
-	got, err := idx.SearchContent(0, "invoice", 10, true, TimeRange{})
+	got, err := idx.SearchContent(allVolumeIDs(t, idx), "invoice", 10, true, TimeRange{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +190,7 @@ func TestSearchContentLimit(t *testing.T) {
 	for _, p := range []string{"a.txt", "b.txt", "c.txt", "d.txt"} {
 		indexed(t, idx, vol, p, 1, "shared keyword content")
 	}
-	got, err := idx.SearchContent(0, "keyword", 2, true, TimeRange{})
+	got, err := idx.SearchContent(allVolumeIDs(t, idx), "keyword", 2, true, TimeRange{})
 	if err != nil || len(got) != 2 {
 		t.Fatalf("limit 2 returned %d, %v", len(got), err)
 	}

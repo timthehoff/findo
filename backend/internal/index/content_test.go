@@ -10,7 +10,7 @@ var textExts = []string{"txt", "md", "go"}
 // optedInVolume creates a volume with content indexing on.
 func optedInVolume(t *testing.T, idx *Index, name string) int64 {
 	t.Helper()
-	v, err := idx.CreateVolume(name, "h", "s", "u", []byte("x"))
+	v, err := idx.CreateVolume(testOwner(t, idx), name, "h", "s", "u", sealed([]byte("x")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +279,7 @@ func TestOptingOutPurgesOnlyThatVolumesText(t *testing.T) {
 func TestContentProgressCountsAndReasons(t *testing.T) {
 	idx := openTest(t)
 	vol := optedInVolume(t, idx, "nas")
-	off, err := idx.CreateVolume("off", "h", "s", "u", []byte("x"))
+	off, err := idx.CreateVolume(testOwner(t, idx), "off", "h", "s", "u", sealed([]byte("x")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -301,7 +301,7 @@ func TestContentProgressCountsAndReasons(t *testing.T) {
 	idx.SaveContentSkip(vol, "bad.txt", 1, 1, ContentFailed, "read error")
 	idx.SaveContent(vol, "stale.txt", 1, 1, []string{"old"}) // file's mtime is now 9: pending again
 
-	got, err := idx.ContentProgress(textExts, 1000)
+	got, err := idx.ContentProgress(allVolumeIDs(t, idx), textExts, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -324,7 +324,7 @@ func TestContentProgressCountsAndReasons(t *testing.T) {
 	}
 
 	// With a higher limit the too-large files are queued, not skipped.
-	raised, _ := idx.ContentProgress(textExts, 1<<20)
+	raised, _ := idx.ContentProgress(allVolumeIDs(t, idx), textExts, 1<<20)
 	if raised[0].Skipped != 1 || raised[0].Pending != 4 {
 		t.Fatalf("with a raised limit: %+v; want skipped 1, pending 4", raised[0])
 	}
@@ -333,7 +333,7 @@ func TestContentProgressCountsAndReasons(t *testing.T) {
 func TestContentProgressForAnOptedInVolumeWithNothingYet(t *testing.T) {
 	idx := openTest(t)
 	vol := optedInVolume(t, idx, "empty")
-	got, err := idx.ContentProgress(textExts, 1000)
+	got, err := idx.ContentProgress(allVolumeIDs(t, idx), textExts, 1000)
 	if err != nil || len(got) != 1 || got[0].VolumeID != vol || got[0].Eligible != 0 || got[0].Reasons == nil {
 		t.Fatalf("got %+v, %v; want one empty entry with a non-nil reasons list", got, err)
 	}

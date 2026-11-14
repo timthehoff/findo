@@ -354,12 +354,16 @@ type TimeRange struct {
 }
 
 // Search returns files/dirs whose name contains q (case-insensitive), limited
-// to those modified within modified. volumeID == 0 searches across every
-// volume; otherwise it's scoped to one. Unless includeHidden is set, dotfiles
+// to those modified within modified. It only looks in the volumes in scope
+// (the caller's own); an empty scope finds nothing, never "everything".
+// Unless includeHidden is set, dotfiles
 // and anything inside a dot-directory (any path component starting with ".")
 // are left out. A bounded modified range sorts newest-first, since "what
 // changed lately" is the point; otherwise results are ordered by name.
-func (idx *Index) Search(volumeID int64, q string, limit int, includeHidden bool, modified TimeRange) ([]File, error) {
+func (idx *Index) Search(scope []int64, q string, limit int, includeHidden bool, modified TimeRange) ([]File, error) {
+	if len(scope) == 0 {
+		return nil, nil
+	}
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
@@ -369,10 +373,7 @@ func (idx *Index) Search(volumeID int64, q string, limit int, includeHidden bool
 		return "$" + strconv.Itoa(len(args))
 	}
 
-	var where []string
-	if volumeID != 0 {
-		where = append(where, `volume_id = `+arg(volumeID))
-	}
+	where := []string{`volume_id = ANY(` + arg(scope) + `)`}
 	where = append(where, `name ILIKE `+arg("%"+likeEscape(q)+"%"))
 	order := `name COLLATE "C" ASC`
 	if modified.From != 0 {
@@ -415,13 +416,16 @@ func (idx *Index) Stat(volumeID int64, p string) (File, bool, error) {
 	return f, true, nil
 }
 
-// Stats returns file/dir counts aggregated across every volume.
-func (idx *Index) Stats() (Stats, error) {
+// Stats returns file/dir counts aggregated across the volumes in scope.
+func (idx *Index) Stats(scope []int64) (Stats, error) {
 	var s Stats
-	if err := idx.db.QueryRow(`SELECT COUNT(*) FROM files WHERE NOT is_dir`).Scan(&s.FileCount); err != nil {
+	if len(scope) == 0 {
+		return s, nil
+	}
+	if err := idx.db.QueryRow(`SELECT COUNT(*) FROM files WHERE volume_id = ANY($1) AND NOT is_dir`, scope).Scan(&s.FileCount); err != nil {
 		return s, err
 	}
-	if err := idx.db.QueryRow(`SELECT COUNT(*) FROM files WHERE is_dir`).Scan(&s.DirCount); err != nil {
+	if err := idx.db.QueryRow(`SELECT COUNT(*) FROM files WHERE volume_id = ANY($1) AND is_dir`, scope).Scan(&s.DirCount); err != nil {
 		return s, err
 	}
 	return s, nil

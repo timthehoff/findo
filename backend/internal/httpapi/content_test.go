@@ -63,7 +63,7 @@ func TestSetContentHeadersEncodesFilename(t *testing.T) {
 func TestFileTypesEndpoint(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 	rec := httptest.NewRecorder()
-	srv.Routes().ServeHTTP(rec, httptest.NewRequest("GET", "/filetypes", nil))
+	authRoutes(srv).ServeHTTP(rec, httptest.NewRequest("GET", "/filetypes", nil))
 	if rec.Code != 200 {
 		t.Fatalf("status = %d", rec.Code)
 	}

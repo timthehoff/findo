@@ -46,7 +46,11 @@ inline/download handling, health/stats, manual reindex), kept fresh between
 crawls by a live change-notify listener. One server can run several
 independently-crawled SMB volumes at once, configured at runtime (not via
 `.env`) through `/volumes` and the dashboard, with passwords encrypted at
-rest (`internal/crypto`, AES-256-GCM under `FINDO_MASTER_KEY`). Every crawl
+rest (`internal/crypto`, AES-256-GCM under `FINDO_MASTER_KEY`, bound to the
+volume's id and owner). Several people can share one server: each signs in
+with a passkey, owns their own volumes and sees only those (see "Accounts and
+access control" below; the sign-in/enrollment/account/users *pages* are still
+to come, issue #37 PR 2). Every crawl
 run is recorded with why it started (`manual`/`startup`/`periodic`/
 `resync`), duration, and files/bytes seen or removed
 (`GET /volumes/{id}/crawl-runs`), and each volume's change-notify listener
@@ -55,9 +59,8 @@ three pages — `index.html`, the landing page (live search, breadcrumb
 directory browsing, copy-path and download actions; dotfiles — and anything under a dot-directory — are
 hidden unless `hidden=1` ("Show hidden" toggle; filtered in SQL by
 `Index.Search`/`List` so counts and limits stay right); search text, volume
-and browse path live in the URL query — `?q=&volume=<name>&path=&hidden=1` — volume names are unique
-(case-insensitively; a `volumes.name` unique index, 409 on clashes, existing
-duplicates renamed on migrate) — so
+and browse path live in the URL query — `?q=&volume=<name>&path=&hidden=1` — volume names are unique per owner
+(case-insensitively; a unique index on `(owner_id, lower(name))`, 409 on clashes) — so
 back/forward, reloads and links work), and `volumes.html`
 (volume config, crawl/watch monitoring, a per-volume storage/largest-files
 breakdown), and `text.html` (a file's extracted text, opened from a search
@@ -123,8 +126,9 @@ comment for the `curl` command that registers it as a volume).
   inline-or-download, and tile `kind`; served to the dashboard at
   `GET /filetypes` so `js/search.js` colors tiles from it instead of keeping
   its own list; a new kind needs `--type-<kind>-*` colors in `css/search.css`) ·
-  `internal/crypto` (AES-256-GCM encrypt/decrypt for volume
-  passwords at rest) · `internal/smbclient` (SMB2 session via `go-smb2`,
+  `internal/crypto` (AES-256-GCM encrypt/decrypt, with additional
+  authenticated data, for volume passwords at rest) · `internal/auth` (passkey
+  sign-in pieces, see "Accounts and access control") · `internal/smbclient` (SMB2 session via `go-smb2`,
   wraps one long-lived session per volume — don't reconnect per request) ·
   `internal/index` (Postgres-backed metadata store via `pgx` through
   `database/sql`, pure Go/no cgo; schema in numbered `migrations/*.sql` applied
@@ -269,8 +273,55 @@ comment for the `curl` command that registers it as a volume).
   highlights the `q` words, and scrolls to `#chunk-N`. Content hits in
   `/search` carry the best chunk's number (`chunk`), so the search page
   links each snippet, and a "view extracted text" icon, straight there.
-- Network exposure (**Findo has no login**): the server listens on `127.0.0.1:8080`
-  by default and logs a warning when `HTTP_ADDR` is widened. `main` wraps the
+- Accounts and access control (issue #37; the design and its rollout plan live
+  there). **Passkeys only, no passwords, no email**: `users` (username,
+  `admin`/`user`, disabled), `credentials` (one row per passkey, public key
+  only), `enrollments` (single-use links, 15 minutes, only the SHA-256 of the
+  token stored) and `sessions` (256-bit token, SHA-256 stored, 30-day sliding
+  expiry, cookie `findo_session`: `HttpOnly`, `SameSite=Lax`, `Secure` over HTTPS,
+  re-set when the expiry slides). `credentials` cascade to the sessions they made.
+  `internal/auth` holds the parts that don't need HTTP (tokens, the in-memory
+  single-use WebAuthn `Challenges`, the per-IP `Limiter`, adapters to
+  `go-webauthn`); `internal/auth/authtest` is a software authenticator that tests
+  use to drive the real ceremonies. The WebAuthn relying party comes from
+  `FINDO_PUBLIC_URL` (default `http://localhost:<port>`; http only for
+  localhost; its host is added to the allowed hosts): the passkey is bound to
+  that host name, so changing it means everyone re-enrolls. Discoverable
+  credentials, user verification required, attestation none. A ceremony is
+  `…/begin` (returns `{challengeId, options}`) then `…/finish?challenge=<id>`
+  with the browser's response as the body; a sign-in failure is always the one
+  generic `401 sign-in failed`, is logged with the address, and feeds the
+  limiter (429 + `Retry-After`); a non-increasing sign count is logged as a
+  possible clone, not refused. The first admin and recovery go through the CLI:
+  `findo-server user add [--admin] <name>` and `user enroll <name>` (in
+  `cmd/findo-server/user.go`) print `<public url>/enroll#<token>`, the token in
+  the fragment so it never reaches a log or Referer; the first account must be
+  `--admin` and adopts every ownerless (pre-accounts) volume.
+  **Authorization is declared per route, not remembered per handler**:
+  `httpapi/access.go` `routeSpecs()` is the only route table, each with an
+  `access` (`accessPublic`, `accessUser`, `accessAdmin`, `accessVolumePath`
+  (`{id}` must be your volume), `accessVolumeQuery` (`?volume=` must be yours))
+  enforced by `guard`; a volume that isn't yours, or doesn't exist, is the same
+  `404`. Handlers read `principalFrom(r)` / `volumeFrom(r)`. Queries that could
+  span volumes take a **scope** (`[]int64` of the caller's volume ids,
+  `volume_id = ANY(scope)`); an empty scope finds nothing, and "0 means every
+  volume" no longer exists. `isolation_test.go` pins the public route list,
+  checks every route for 401 signed out, 403 for non-admins on admin routes, and
+  runs every volume-taking route as another user (and as an admin) against a
+  victim's volume; a new route needs an `access` and, if it takes a volume, shows
+  up in that matrix automatically. Admins manage users and global
+  `/settings`, issue enrollment links, and reassign owners, but see only other
+  users' volume names and owners (`GET /volumes` → `others`), never files or
+  connection details. A volume's SMB password is sealed with
+  `index.VolumeAAD(id, owner)` as GCM additional data (`httpapi/volumeseal.go`),
+  so a ciphertext copied to another volume or owner won't open; an ownerless
+  legacy volume uses none until adopted, and reassigning an owner reseals.
+  Volume names are unique per owner. Deleting a user deletes their volumes first
+  (the foreign key is deliberately not cascading). Still open on #37: the
+  dashboard pages (PR 2) and Caddy/HTTPS in the installer (PR 3).
+- Network exposure: the server listens on `127.0.0.1:8080`
+  by default and logs a warning when `HTTP_ADDR` is widened (plain HTTP, where
+  passkeys don't work: reach it through a TLS proxy instead). `main` wraps the
   routes in `httpapi.HostGuard` (not inside `Routes()`, so route tests aren't
   affected): it refuses a `Host` that isn't loopback, an IP literal, a
   single-label name, a private suffix (`.local .lan .localhost .home.arpa
@@ -278,15 +329,17 @@ comment for the `curl` command that registers it as a volume).
   (this defeats DNS rebinding, which always arrives with the attacker's public
   domain as `Host`), and refuses state-changing requests whose `Origin` isn't the
   request's own host (cross-site POSTs need no preflight, and JSON bodies are
-  parsed whatever their Content-Type). It's browser protection, not
-  authentication. The server has header/read/idle timeouts and a 32 KiB header
+  parsed whatever their Content-Type; `SameSite=Lax` on the session cookie is a
+  second layer). The server has header/read/idle timeouts and a 32 KiB header
   cap but deliberately no `WriteTimeout` (it would cut off long downloads and
   video); JSON bodies are capped at 64 KiB (`decodeJSON`); request paths may not
   contain `..` (`smbclient.ValidPath`, also enforced in `Client.Open`);
   `PUT /volumes/{id}` requires the password when host, share or username
   change, so a stored password can't be sent to a server chosen by whoever
   made the request; dashboard pages carry a strict CSP, `X-Frame-Options:
-  DENY`, `nosniff` and `no-referrer`.
+  DENY`, `nosniff` and `no-referrer`. The dashboard's static files are served
+  without signing in (they hold no user data; every API call they make is
+  guarded); `/healthz` is the only other open route besides sign-in.
 - Tests need Postgres: `make test` runs them through `scripts/with-testdb.sh`,
   which starts a throwaway cluster on a Unix socket in a temp dir and sets
   `FINDO_TEST_DSN`; each test then gets its own schema from `testdb.DSN(t)`.

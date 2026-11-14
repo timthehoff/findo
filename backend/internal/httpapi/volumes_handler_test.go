@@ -27,6 +27,7 @@ func newTestServerNoVolumes(t *testing.T, smb *fakeSMB) *Server {
 
 	srv := NewServer(idx, make([]byte, crypto.KeySize), "dev")
 	srv.newSMB = func(host, share, user, pass string) smbConnector { return smb }
+	newDefaultAdmin(t, srv)
 	return srv
 }
 
@@ -40,7 +41,7 @@ func doJSON(t *testing.T, srv *Server, method, path string, body interface{}) *h
 	}
 	req := httptest.NewRequest(method, path, &buf)
 	rec := httptest.NewRecorder()
-	srv.Routes().ServeHTTP(rec, req)
+	authRoutes(srv).ServeHTTP(rec, req)
 	return rec
 }
 
