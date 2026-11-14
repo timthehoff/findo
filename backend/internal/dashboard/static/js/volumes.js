@@ -3,9 +3,12 @@ import { getJSON, postJSON, putJSON, deleteJSON } from './api.js';
 import { initTheme } from './theme.js';
 import { toast } from './toast.js';
 import { initVersion } from './version.js';
+import { initUser } from './user.js';
 
 initTheme();
 initVersion();
+
+let isAdmin = false;
 
 const ICONS = {
   reindex: lineIcon('<path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.5 9a9 9 0 0 1 14.9-3.4L23 10M1 14l4.6 4.4A9 9 0 0 0 20.5 15"/>'),
@@ -13,6 +16,7 @@ const ICONS = {
   insights: lineIcon('<path d="M18 20V10M12 20V4M6 20v-6"/>'),
   test: lineIcon('<path d="M22 11.1V12a10 10 0 1 1-5.9-9.1"/><path d="m22 4-10 10-3-3"/>'),
   edit: lineIcon('<path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/>'),
+  owner: lineIcon('<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/>'),
   delete: lineIcon('<path d="M3 6h18M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/>'),
 };
 
@@ -72,8 +76,8 @@ async function refreshStats() {
     const healthClass = health.status === 'ok' ? 'ok' : 'bad';
     cards.innerHTML = `
       <div class="card"><div class="label">Health</div><div class="value ${healthClass}">${health.status}</div></div>
-      <div class="card"><div class="label">Files (all volumes)</div><div class="value">${stats.fileCount ?? 0}</div></div>
-      <div class="card"><div class="label">Dirs (all volumes)</div><div class="value">${stats.dirCount ?? 0}</div></div>
+      <div class="card"><div class="label">Files</div><div class="value">${stats.fileCount ?? 0}</div></div>
+      <div class="card"><div class="label">Folders</div><div class="value">${stats.dirCount ?? 0}</div></div>
       <div class="card"><div class="label">Volumes online</div><div class="value">${(health.volumes || []).filter(v => v.ok).length} / ${(health.volumes || []).length}</div></div>
     `;
   } catch (e) {
@@ -86,6 +90,7 @@ async function refreshVolumes() {
   try {
     const body = await getJSON('/volumes');
     const volumes = body.volumes || [];
+    renderOthers(body.others || []);
 
     // Extraction progress, only when some volume has content search on.
     contentProgress = new Map();
@@ -175,6 +180,7 @@ function renderVolumeCard(v) {
           ${actionBtn('insights', v.id, insightsExpanded ? 'Hide insights' : 'Show insights', { pressed: insightsExpanded, label: 'Insights' })}
           ${actionBtn('test', v.id, 'Test connection', { label: 'Test' })}
           ${actionBtn('edit', v.id, 'Edit volume')}
+          ${isAdmin ? actionBtn('owner', v.id, 'Give to another user') : ''}
           ${actionBtn('delete', v.id, 'Delete volume', { danger: true })}
         </div>
       </div>
@@ -301,6 +307,8 @@ async function handleVolumeAction(action, id, volumes) {
       toast('Test failed: ' + e.message, 'error');
     }
     refreshVolumes();
+  } else if (action === 'owner') {
+    openOwnerDialog(id, (volumes.find(v => String(v.id) === String(id)) || {}).name, me.id);
   } else if (action === 'edit') {
     openVolumeDialog(volumes.find(v => String(v.id) === String(id)));
   } else if (action === 'delete') {
@@ -315,6 +323,62 @@ async function handleVolumeAction(action, id, volumes) {
     refreshStats();
   }
 }
+
+// ---- administrators: other users' volumes, and handing volumes over ----
+let me = null;
+const othersSection = document.getElementById('othersSection');
+const othersEl = document.getElementById('others');
+const ownerDialog = document.getElementById('ownerDialog');
+const ownerSelect = document.getElementById('ownerSelect');
+let ownerVolume = null;
+
+function renderOthers(others) {
+  othersSection.hidden = !isAdmin || others.length === 0;
+  othersEl.innerHTML = others.map(o => `
+    <li>
+      <div class="main">
+        <span class="title">${escapeHTML(o.name)}</span>
+        <span class="badge neutral">${o.ownerName ? escapeHTML(o.ownerName) : 'no owner'}</span>
+      </div>
+      <div class="actions"><button class="small" data-owner-volume="${o.id}" data-name="${escapeHTML(o.name)}" data-owner="${o.ownerId ?? ''}">Change owner</button></div>
+    </li>`).join('');
+}
+
+othersEl.addEventListener('click', (ev) => {
+  const btn = ev.target.closest('button[data-owner-volume]');
+  if (btn) openOwnerDialog(btn.dataset.ownerVolume, btn.dataset.name, btn.dataset.owner);
+});
+
+async function openOwnerDialog(id, name, currentOwner) {
+  try {
+    const { users } = await getJSON('/users');
+    ownerVolume = id;
+    document.getElementById('ownerTitle').textContent = `Change owner of ${name || 'volume'}`;
+    ownerSelect.innerHTML = users
+      .filter(u => !u.disabled && String(u.id) !== String(currentOwner))
+      .map(u => `<option value="${u.id}">${escapeHTML(u.username)}</option>`).join('');
+    if (!ownerSelect.options.length) {
+      toast('There is no one else to give it to. Add a user first.', 'error');
+      return;
+    }
+    ownerDialog.showModal();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+document.getElementById('ownerCancel').addEventListener('click', () => ownerDialog.close());
+document.getElementById('ownerForm').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  try {
+    await putJSON(`/volumes/${ownerVolume}/owner`, { ownerId: Number(ownerSelect.value) });
+    toast('Owner changed.', 'success');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+  ownerDialog.close();
+  refresh();
+});
 
 function toggleExpanded(set, id) {
   const key = String(id);
@@ -470,7 +534,12 @@ function refresh() {
   refreshVolumes();
 }
 
-loadContentSettings();
-
-refresh();
-setInterval(refresh, 5000);
+// Content-indexing limits are global, so only administrators see them.
+initUser().then(user => {
+  me = user;
+  isAdmin = user.role === 'admin';
+  document.getElementById('contentSection').hidden = !isAdmin;
+  if (isAdmin) loadContentSettings();
+  refresh();
+  setInterval(refresh, 5000);
+});

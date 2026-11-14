@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Account — Findo</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/auth.css">
+</head>
+<body>
+  <nav class="topnav">
+    <div class="brand-group">
+      <a class="brand" href="/">🐾 Findo</a>
+      <small class="version" data-version></small>
+    </div>
+    <a href="/">Search</a>
+    <a href="/volumes.html">Volumes</a>
+    <button class="icon-btn" data-theme-toggle></button>
+  </nav>
+
+  <div class="page-head">
+    <h1 id="heading">Your account</h1>
+    <button id="signOutBtn">Sign out</button>
+  </div>
+
+  <div id="oneKey" class="notice" hidden>
+    You only have one passkey. If you lose that device you'll need an administrator (or the server's command line) to let you back in. Add one on another device or in your password manager.
+  </div>
+
+  <div class="section-head"><h2>Passkeys</h2></div>
+  <ul class="rows" id="passkeys"><li class="muted">Loading…</li></ul>
+  <form class="add-row" id="addForm">
+    <input type="text" id="newLabel" maxlength="60" placeholder="Name for this device" aria-label="Name for the new passkey" autocomplete="off">
+    <button class="primary" type="submit" id="addBtn">Add a passkey</button>
+  </form>
+
+  <div class="section-head"><h2>Signed-in devices</h2></div>
+  <ul class="rows" id="sessions"><li class="muted">Loading…</li></ul>
+
+  <dialog id="renameDialog">
+    <form id="renameForm" method="dialog">
+      <h2 style="margin:0 0 0.25rem">Rename passkey</h2>
+      <label>Name <input type="text" id="renameInput" maxlength="60" required></label>
+      <div class="dialog-actions">
+        <button type="button" id="renameCancel">Cancel</button>
+        <button type="submit" class="primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="/js/account.js"></script>
+</body>
+</html>

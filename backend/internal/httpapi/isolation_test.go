@@ -94,6 +94,7 @@ var wantPublic = []string{
 	"POST /auth/passkey/login/finish",
 	"POST /auth/enroll/begin",
 	"POST /auth/enroll/finish",
+	"GET /enroll",      // the enrollment page
 	"GET /search.html", // a redirect
 	"GET /",            // the app's own static files
 }
@@ -371,7 +372,7 @@ func TestSettingsAreAdminOnly(t *testing.T) {
 
 func TestOnlyTheStaticAppIsServedWithoutSigningIn(t *testing.T) {
 	w := newWorld(t)
-	for _, p := range []string{"/", "/volumes.html", "/js/search.js", "/css/base.css"} {
+	for _, p := range []string{"/", "/volumes.html", "/login.html", "/enroll", "/js/search.js", "/css/base.css"} {
 		if rec := w.req(nil, "GET", p, nil); rec.Code != http.StatusOK {
 			t.Errorf("GET %s signed out = %d, want the static file", p, rec.Code)
 		}

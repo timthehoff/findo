@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in — Findo</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/auth.css">
+</head>
+<body class="auth">
+  <button class="icon-btn auth-theme" data-theme-toggle></button>
+  <main class="auth-card">
+    <p class="brand" style="margin:0">🐾 Findo</p>
+    <h1>Welcome back</h1>
+    <p>Sign in with the passkey on this device.</p>
+    <button class="primary" id="signInBtn" disabled>Sign in with a passkey</button>
+    <div class="auth-msg" id="msg" role="status"></div>
+    <div class="setup" id="setup" hidden>
+      <strong>No accounts yet.</strong> On the machine running Findo, create the first one (an administrator) and open the link it prints:
+      <code>findo-server user add --admin &lt;name&gt;</code>
+    </div>
+  </main>
+  <script type="module" src="/js/login.js"></script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+/* Sign-in and enrollment: one centered card. */
+body.auth { max-width: 420px; padding-top: 12vh; }
+.auth-card { text-align: center; }
+.auth-card .brand { font-size: 2.2rem; font-weight: 700; margin: 0; }
+.auth-card h1 { font-size: 1.15rem; margin: 0.25rem 0 0.5rem; }
+.auth-card p { color: var(--fg-secondary); font-size: 0.9rem; margin: 0.5rem 0 1.25rem; }
+.auth-card button.primary { width: 100%; padding: 0.65rem 1rem; font-size: 1rem; }
+.auth-card label { display: flex; flex-direction: column; gap: 0.2rem; text-align: left; font-size: 0.85rem; margin-bottom: 1rem; }
+.auth-card input[type=text] { width: 100%; box-sizing: border-box; }
+.auth-theme { position: fixed; top: 0.75rem; right: 0.75rem; }
+.auth-msg { min-height: 1.3em; margin-top: 0.9rem; font-size: 0.85rem; }
+.setup { text-align: left; background: var(--tile-bg); border-radius: 10px; padding: 0.8rem 1rem; font-size: 0.85rem; margin-top: 1rem; }
+.setup code, .linkbox { display: block; font-family: ui-monospace, Menlo, monospace; font-size: 0.8rem; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 0.4rem 0.6rem; margin: 0.5rem 0; overflow-x: auto; white-space: pre; }
+
+/* Account and Users pages */
+.section-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 2rem; }
+.section-head h2 { margin: 0; }
+.rows { margin: 0.5rem 0 0; padding: 0; list-style: none; }
+.rows li { display: flex; align-items: center; gap: 0.75rem; justify-content: space-between; padding: 0.7rem 0.25rem; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.rows .main { min-width: 0; }
+.rows .title { font-weight: 600; margin-right: 0.35rem; }
+.rows .sub { font-size: 0.8rem; color: var(--muted); margin-top: 0.15rem; overflow-wrap: anywhere; }
+.rows .actions { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+.notice { border-radius: 10px; padding: 0.7rem 1rem; font-size: 0.85rem; background: var(--badge-bad-bg); color: var(--badge-bad-fg); margin: 1rem 0 0; }
+.add-row { display: flex; gap: 0.5rem; margin-top: 1rem; flex-wrap: wrap; }
+.add-row input { flex: 1 1 12rem; min-width: 0; }
+.badge.neutral { background: var(--tile-bg); color: var(--fg-secondary); }
+dialog .linkbox { max-width: 100%; box-sizing: border-box; user-select: all; }
+dialog p { font-size: 0.85rem; color: var(--fg-secondary); margin: 0; }
+.user-link { font-weight: 600; }

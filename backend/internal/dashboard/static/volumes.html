@@ -7,6 +7,7 @@
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/css/base.css">
 <link rel="stylesheet" href="/css/volumes.css">
+<link rel="stylesheet" href="/css/auth.css">
 </head>
 <body>
   <nav class="topnav">
@@ -26,7 +27,7 @@
 
   <div class="cards" id="cards">Fetching stats…</div>
 
-  <section class="settings-card" aria-labelledby="contentHeading">
+  <section class="settings-card" id="contentSection" aria-labelledby="contentHeading" hidden>
     <div class="settings-head">
       <h2 id="contentHeading">Content indexing</h2>
       <span id="contentState" class="badge"></span>
@@ -51,6 +52,24 @@
   </section>
 
   <div id="volumes" class="volume-list">Fetching volumes…</div>
+
+  <section id="othersSection" hidden>
+    <h2>Other users' volumes</h2>
+    <p class="muted settings-help">You can see that these exist and who owns them, nothing more. Hand one to someone else here.</p>
+    <ul class="rows" id="others"></ul>
+  </section>
+
+  <dialog id="ownerDialog">
+    <form id="ownerForm" method="dialog">
+      <h2 style="margin:0 0 0.25rem" id="ownerTitle">Change owner</h2>
+      <p class="muted" style="font-size:0.85rem;margin:0">The new owner gets the volume, its saved NAS login and everything indexed. The old owner loses access.</p>
+      <label>New owner <select id="ownerSelect"></select></label>
+      <div class="dialog-actions">
+        <button type="button" id="ownerCancel">Cancel</button>
+        <button type="submit" class="primary">Change owner</button>
+      </div>
+    </form>
+  </dialog>
 
   <dialog id="volumeDialog">
     <form id="volumeForm">

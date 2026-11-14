@@ -49,13 +49,12 @@ independently-crawled SMB volumes at once, configured at runtime (not via
 rest (`internal/crypto`, AES-256-GCM under `FINDO_MASTER_KEY`, bound to the
 volume's id and owner). Several people can share one server: each signs in
 with a passkey, owns their own volumes and sees only those (see "Accounts and
-access control" below; the sign-in/enrollment/account/users *pages* are still
-to come, issue #37 PR 2). Every crawl
+access control" below). Every crawl
 run is recorded with why it started (`manual`/`startup`/`periodic`/
 `resync`), duration, and files/bytes seen or removed
 (`GET /volumes/{id}/crawl-runs`), and each volume's change-notify listener
 reports its own connected/last-event/resync-count state. The web UI is
-three pages — `index.html`, the landing page (live search, breadcrumb
+seven pages — `index.html`, the landing page (live search, breadcrumb
 directory browsing, copy-path and download actions; dotfiles — and anything under a dot-directory — are
 hidden unless `hidden=1` ("Show hidden" toggle; filtered in SQL by
 `Index.Search`/`List` so counts and limits stay right); search text, volume
@@ -64,7 +63,11 @@ and browse path live in the URL query — `?q=&volume=<name>&path=&hidden=1` —
 back/forward, reloads and links work), and `volumes.html`
 (volume config, crawl/watch monitoring, a per-volume storage/largest-files
 breakdown), and `text.html` (a file's extracted text, opened from a search
-hit) — with an icon-only light/dark/system theme toggle, a clickable
+hit), plus the account pages `login.html` (one "Sign in with a passkey"
+button; explains the CLI command when no accounts exist), `enroll.html` (served
+at `/enroll`, the address in enrollment links: it reads the token from the URL
+fragment), `account.html` (passkeys, signed-in devices, sign out) and
+`users.html` (administrators: add, disable, delete, sign-in links) — with an icon-only light/dark/system theme toggle, a clickable
 logo back to `/`, a `favicon.svg` (the brand 🐾 emoji, linked from every
 page; an SVG, so iOS home-screen pins still need a PNG `apple-touch-icon`
 later), and toast notifications for action feedback. (`/search` and
@@ -317,8 +320,8 @@ comment for the `curl` command that registers it as a volume).
   so a ciphertext copied to another volume or owner won't open; an ownerless
   legacy volume uses none until adopted, and reassigning an owner reseals.
   Volume names are unique per owner. Deleting a user deletes their volumes first
-  (the foreign key is deliberately not cascading). Still open on #37: the
-  dashboard pages (PR 2) and Caddy/HTTPS in the installer (PR 3).
+  (the foreign key is deliberately not cascading). Still open on #37: Caddy/HTTPS
+  in the installer (PR 3).
 - Network exposure: the server listens on `127.0.0.1:8080`
   by default and logs a warning when `HTTP_ADDR` is widened (plain HTTP, where
   passkeys don't work: reach it through a TLS proxy instead). `main` wraps the
@@ -405,6 +408,19 @@ comment for the `curl` command that registers it as a volume).
   modules directly. Add a new page the same way: its own `.html` + page-
   specific `css/`/`js/` files, reusing `base.css`/`util.js`/`api.js` rather
   than duplicating them.
+- Signing in on the front end: `js/api.js` throws an `ApiError` (with `status`
+  and the parsed `data`) and, on a 401 anywhere but `login.html`/`/enroll`,
+  sends the browser to `/login.html?next=<page>` (`login.js` only returns to
+  same-origin paths). `js/webauthn.js` wraps the two-call ceremonies with the
+  browser's native `parse…OptionsFromJSON`/`toJSON` (no hand-rolled ArrayBuffer
+  code, so it needs Safari 17.4+, Chrome 129+, Firefox 119+; otherwise the pages
+  say so). `js/user.js` `initUser()` adds the Users link (admins) and the account
+  link to the nav and resolves to the signed-in user; every page behind sign-in
+  calls it, and the pages that open signed-out (`login`, `enroll`) must not
+  import it (`TestSignedOutPagesDoNotNeedASession`). Admin-only UI is hidden
+  client-side for convenience only; the server enforces it. The Volumes page
+  shows the content-indexing card only to admins, lists other users' volumes
+  by name and owner, and has a change-owner dialog.
 - Shared look (`css/base.css`): quiet outlined buttons, one `button.primary`
   (accent fill) per page, and `.icon-btn` for row actions — icon-only with a
   tooltip + `aria-label`, plus `.with-label` only where an icon alone isn't

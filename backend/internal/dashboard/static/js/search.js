@@ -3,9 +3,11 @@ import { getJSON } from './api.js';
 import { initTheme } from './theme.js';
 import { toast } from './toast.js';
 import { initVersion } from './version.js';
+import { initUser } from './user.js';
 
 initTheme();
 initVersion();
+initUser();
 
 const volumeSelect = document.getElementById('volumeFilter');
 const qInput = document.getElementById('q');

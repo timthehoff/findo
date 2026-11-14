@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Users — Findo</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/auth.css">
+</head>
+<body>
+  <nav class="topnav">
+    <div class="brand-group">
+      <a class="brand" href="/">🐾 Findo</a>
+      <small class="version" data-version></small>
+    </div>
+    <a href="/">Search</a>
+    <a href="/volumes.html">Volumes</a>
+    <button class="icon-btn" data-theme-toggle></button>
+  </nav>
+
+  <div class="page-head">
+    <h1>Users</h1>
+    <button class="primary" id="addUserBtn">Add user</button>
+  </div>
+  <p class="muted" style="font-size:0.85rem">Everyone has their own volumes and sees only those. Administrators can add and disable people, but can't browse anyone else's files.</p>
+
+  <ul class="rows" id="users"><li class="muted">Loading…</li></ul>
+
+  <dialog id="userDialog">
+    <form id="userForm">
+      <h2 style="margin:0 0 0.25rem">Add user</h2>
+      <label>Name <input type="text" id="uName" required maxlength="64" autocomplete="off" title="Letters, digits, dots, underscores and hyphens"></label>
+      <label>Role
+        <select id="uRole"><option value="user">User</option><option value="admin">Administrator</option></select>
+      </label>
+      <div class="dialog-actions">
+        <button type="button" id="userCancel">Cancel</button>
+        <button type="submit" class="primary">Create</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="linkDialog">
+    <form method="dialog">
+      <h2 style="margin:0 0 0.25rem" id="linkTitle">Sign-in link</h2>
+      <p id="linkText"></p>
+      <code class="linkbox" id="linkBox"></code>
+      <p class="muted">It works once and expires in 15 minutes. Anyone with it can register a passkey for this account, so send it privately.</p>
+      <div class="dialog-actions">
+        <button type="button" id="copyLink">Copy link</button>
+        <button type="submit" class="primary">Done</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="/js/users.js"></script>
+</body>
+</html>
