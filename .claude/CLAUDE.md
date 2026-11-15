@@ -86,6 +86,28 @@ index in a Homebrew-managed local Postgres (`postgresql@17`, database
 in `~/Library/Logs/Findo`. It generates `FINDO_MASTER_KEY` once and never
 overwrites an existing `.env`; `FINDO_VERSION` pins a release and
 `FINDO_BINARY` installs a local build. See `docs/macos-install.md`.
+**HTTPS** (passkeys need it): Findo stays on `127.0.0.1:8080` and does no TLS;
+the installer also runs Caddy as a second agent (`com.findo.caddy`, ports 80/443,
+`admin off`) reverse-proxying to it, in one of two modes chosen by a prompt (read
+from the terminal even under `curl | sh`) or `FINDO_HTTPS`/`FINDO_HOST`/
+`FINDO_DNS_TOKEN`/`FINDO_ADMIN`: `public` (a domain on Cloudflare DNS, Let's
+Encrypt by DNS-01, using a Caddy built with `caddy-dns/cloudflare` downloaded from
+caddyserver.com to `~/.local/bin/findo-caddy`, the token only in `caddy.env`,
+loaded with `--envfile`) or `private` (Homebrew's Caddy, `tls internal`; the root
+certificate is copied to `findo-root-ca.crt` and the per-device trust steps
+printed). It writes `FINDO_PUBLIC_URL=https://<host>` to `.env` (editing the line,
+never replacing the file) and refuses to change an existing one without
+`FINDO_CHANGE_HOST=1`, since passkeys are bound to the host. A plain re-run is an
+update: it keeps an existing Caddyfile/`caddy.env`/`.env`, refreshes a public-mode
+Caddy binary, restarts both agents, and runs `caddy validate` before touching
+launchd. Caddy's state lives under `Findo/caddy-data` (`XDG_DATA_HOME` in its
+plist). The installer is POSIX `sh`; `deploy/macos/test/install_test.sh` runs the
+real script on Linux against shims for brew/launchctl/curl/Postgres/Caddy (CI runs
+it, plus `shellcheck`, in the `installer` job). It was also checked once against
+a real Caddy (stock for `private`, an `xcaddy` build with the Cloudflare plugin for
+`public`) with Chromium trusting Caddy's root: passkey enroll and sign-in at
+`findo.lan` and `findo.home.arpa`. Not verified: an actual Let's Encrypt/Cloudflare
+issuance, and macOS itself (launchd, Homebrew, ports 80/443).
 `.github/workflows/release.yml` builds the macOS binaries on a `vX.Y.Z` tag
 (`make build VERSION=…`, `CGO_ENABLED=0`) and publishes the release
 (pre-release for 0.x). `make build` stamps the version from the git tag
@@ -341,8 +363,8 @@ comment for the `curl` command that registers it as a volume).
   rather than evicting anyone else's. Authenticated responses are
   `Cache-Control: private, no-store` (set in `guard`); file content is
   `private, no-cache` (revalidated through the guard on each use); the public
-  sign-in/enrollment ceremonies are `no-store`. Still open on #37: Caddy/HTTPS
-  in the installer (PR 3).
+  sign-in/enrollment ceremonies are `no-store`. (#37's three rollout steps are
+  all done; HTTPS is in the installer, see "Deployment".)
 - Outbound connections to user-supplied addresses (`POST /volumes/test`, saved
   tests, creating and saving a volume) would let any signed-in user probe the
   network behind the server, so they are limited three ways

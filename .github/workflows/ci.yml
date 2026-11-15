@@ -18,3 +18,12 @@ jobs:
           go-version-file: backend/go.mod
       - working-directory: backend
         run: make check test build
+
+  # The macOS installer is shell, run as `curl | sh` on people's Macs, so it is
+  # linted and run (against shims for brew, launchctl and the network) here.
+  installer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: shellcheck deploy/macos/install.sh deploy/macos/test/install_test.sh
+      - run: deploy/macos/test/install_test.sh
