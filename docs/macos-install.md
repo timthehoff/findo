@@ -118,7 +118,23 @@ Caddy proves you own the domain by adding a temporary DNS record
 3. Run the installer, choose option 1, and give it a name in the zone
    (`findo.example.com`) and the token. The token goes only in `caddy.env`
    (readable by you alone), which Caddy loads when it starts; it isn't in the
-   Caddyfile, the launchd plist or the logs.
+   Caddyfile or the launchd plist.
+
+**What Caddy does with the token.** For each certificate, and again each time it
+renews (about 30 days before a 90-day certificate expires), Caddy calls
+Cloudflare's API to look up the zone (Zone:Read), create one temporary TXT record
+at `_acme-challenge.<name>` (Zone:DNS:Edit), and delete it once Let's Encrypt has
+checked it. Let's Encrypt itself never calls Cloudflare; it does an ordinary public
+DNS lookup for that record. The token can edit **any** record in its zone, not only
+that one, so treat it like a password, and keep it limited to a single zone. The
+name you serve doesn't need a public DNS record at all.
+
+**A caveat about logs.** When Caddy thinks a token is malformed (Cloudflare tokens
+are 35 to 50 letters, digits, `-` and `_`, or start with `cfut_` or `cfat_`), its
+own error message repeats the token. The installer hides the saved token when it
+shows that error, so a typo isn't printed to your terminal. But if you later edit
+`caddy.env` by hand into a malformed token, Caddy will write it to `caddy.log`
+every time it tries to start, so check the token's shape before restarting it.
 
 The certificate name is published in public Certificate Transparency logs, which
 is harmless but visible. Homebrew's Caddy has no DNS plugins, so this mode uses
@@ -180,10 +196,15 @@ reach it by.
 
 The installer waits for `https://<name>/` and says if it doesn't answer. Look at
 `~/Library/Logs/Findo/caddy.log`. The usual causes: a Cloudflare token that is
-mistyped, or lacks Zone:DNS:Edit on that zone (Caddy rejects a token that isn't
-the right shape before it starts, and prints why); or something else already using
-port 80 or 443 (`sudo lsof -nP -iTCP:443 -sTCP:LISTEN`; macOS's Internet Sharing
-and some local web servers do).
+mistyped, or lacks Zone:Zone:Read or Zone:DNS:Edit on that zone (Caddy rejects a
+token that isn't the right shape before it starts, and the installer shows why);
+or something else already using port 80 or 443
+(`sudo lsof -nP -iTCP:443 -sTCP:LISTEN`; macOS's Internet Sharing and some local
+web servers do).
+
+A wrong token is saved in `caddy.env` before Caddy checks it, and a re-run reuses
+the saved one. To replace it, run the installer again with the new token:
+`FINDO_HTTPS=public FINDO_HOST=findo.example.com FINDO_DNS_TOKEN=<token> sh install.sh`.
 
 ### Other names and limits
 
