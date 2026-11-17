@@ -93,7 +93,9 @@ from the terminal even under `curl | sh`) or `FINDO_HTTPS`/`FINDO_HOST`/
 `FINDO_DNS_TOKEN`/`FINDO_ADMIN`: `public` (a domain on Cloudflare DNS, Let's
 Encrypt by DNS-01, using a Caddy built with `caddy-dns/cloudflare` downloaded from
 caddyserver.com to `~/.local/bin/findo-caddy`, the token only in `caddy.env`,
-loaded with `--envfile`) or `private` (Homebrew's Caddy, `tls internal`; the root
+loaded with `--envfile`; the plugin's error for a malformed token echoes it, so the
+installer's `hide_token` removes the saved token from the `caddy validate` output
+it shows, and says how to supply a new one, since a re-run reuses the saved one) or `private` (Homebrew's Caddy, `tls internal`; the root
 certificate is copied to `findo-root-ca.crt` and the per-device trust steps
 printed). It writes `FINDO_PUBLIC_URL=https://<host>` to `.env` (editing the line,
 never replacing the file) and refuses to change an existing one without

@@ -105,6 +105,23 @@ set_env() {
 
 get_env() { sed -n "s/^$1=//p" "$DATA_DIR/.env" | tail -n 1; }
 
+# hide_token TOKEN: copy stdin to stdout with TOKEN replaced, so a secret that a
+# tool echoes into its output isn't shown. A token with unusual characters can't
+# be safely used in a pattern, so lines mentioning it are dropped instead.
+hide_token() {
+  if [ -z "$1" ]; then
+    cat
+    return 0
+  fi
+  case $1 in
+    *[!A-Za-z0-9_-]*)
+      grep -vF -- "$1" || true
+      echo "(lines that mention the API token were hidden)"
+      ;;
+    *) sed "s/$1/[token hidden]/g" ;;
+  esac
+}
+
 # reload_agent LABEL PLIST: (re)start a launchd agent. bootout is asynchronous,
 # so wait for the old instance to go away before bootstrapping the new one.
 reload_agent() {
@@ -343,7 +360,17 @@ if [ "$HTTPS" = public ] || [ "$HTTPS" = private ] || [ "$HTTPS" = keep ]; then
   if ! XDG_DATA_HOME=$CADDY_STATE XDG_CONFIG_HOME=$DATA_DIR/caddy-config \
       "$CADDY" validate --config "$CADDYFILE" --adapter caddyfile ${validate_env:+$validate_env "$CADDY_ENV"} \
       > "$tmp/validate.out" 2>&1; then
-    cat "$tmp/validate.out" >&2
+    # Caddy's Cloudflare plugin puts a token it thinks is malformed into its own
+    # error message, so the saved token is hidden before this is shown.
+    saved_token=
+    if [ -f "$CADDY_ENV" ]; then
+      saved_token=$(sed -n 's/^CLOUDFLARE_API_TOKEN=//p' "$CADDY_ENV" | tail -n 1)
+    fi
+    hide_token "$saved_token" < "$tmp/validate.out" >&2
+    if [ "$KIND" = public ]; then
+      say "If the Cloudflare token is the problem, run this again with FINDO_HTTPS=public" >&2
+      say "FINDO_HOST=$HOST FINDO_DNS_TOKEN=<your token>; otherwise the saved one is reused." >&2
+    fi
     die "Caddy rejected the generated $CADDYFILE"
   fi
 

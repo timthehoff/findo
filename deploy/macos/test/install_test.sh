@@ -70,7 +70,11 @@ echo "caddy \$*" >> "$CALLS"
 case "\$1" in
   list-modules) [ -n "\${STUB_NO_CF:-}" ] || echo dns.providers.cloudflare; echo http ;;
   validate)
-    if [ -n "\${STUB_VALIDATE_FAIL:-}" ]; then echo "Error: adapting config: bad" >&2; exit 1; fi
+    if [ -n "\${STUB_VALIDATE_FAIL:-}" ]; then
+      # the real Cloudflare plugin echoes a malformed token into its error
+      [ -n "\${STUB_ECHO:-}" ] && echo "{\\"msg\\":\\"provision dns.providers.cloudflare: API token '\$STUB_ECHO' appears invalid\\"}" >&2
+      echo "Error: adapting config: bad" >&2; exit 1
+    fi
     # what a running Caddy leaves behind for a private CA
     d="\$XDG_DATA_HOME/caddy/pki/authorities/local"; mkdir -p "\$d"; echo ROOTCERT > "\$d/root.crt" ;;
 esac
@@ -300,6 +304,44 @@ a_caddyfile_caddy_rejects_stops_the_install() {
   hasnt "$CALLS" "launchctl bootstrap"
 }
 
+a_rejected_token_is_not_echoed_back() {
+  tok=wrongTOKEN_abc-123XYZ_0123456789abcd
+  run FINDO_HTTPS=public FINDO_HOST=findo.example.com FINDO_DNS_TOKEN=$tok STUB_VALIDATE_FAIL=1 STUB_ECHO=$tok
+  ran_bad
+  hasnt "$OUT" "$tok"
+  has "$OUT" "[token hidden]"
+  has "$OUT" "appears invalid" # the rest of Caddy's message is still shown
+  has "$OUT" "rejected the generated"
+  # the saved token would be reused, so say how to give a new one
+  has "$OUT" "FINDO_DNS_TOKEN=<your token>"
+
+  # the same when the token comes from an earlier run's caddy.env
+  cleanup; setup
+  run FINDO_HTTPS=public FINDO_HOST=findo.example.com FINDO_DNS_TOKEN=$tok
+  ran_ok
+  run STUB_VALIDATE_FAIL=1 STUB_ECHO=$tok
+  ran_bad
+  hasnt "$OUT" "$tok"
+  has "$OUT" "[token hidden]"
+
+  # a hand-edited token with characters that can't go in a pattern: its lines are dropped
+  cleanup; setup
+  run FINDO_HTTPS=public FINDO_HOST=findo.example.com FINDO_DNS_TOKEN=$tok
+  odd='a.b*c/d'
+  printf 'CLOUDFLARE_API_TOKEN=%s\n' "$odd" > "$DATA/caddy.env"
+  run STUB_VALIDATE_FAIL=1 "STUB_ECHO=$odd"
+  ran_bad
+  hasnt "$OUT" "$odd"
+  has "$OUT" "lines that mention the API token were hidden"
+  has "$OUT" "adapting config" # lines without it still show
+
+  # a private authority has no token and no hint about one
+  cleanup; setup
+  run FINDO_HTTPS=private FINDO_HOST=findo.home.arpa STUB_VALIDATE_FAIL=1
+  ran_bad
+  hasnt "$OUT" FINDO_DNS_TOKEN
+}
+
 a_caddy_without_the_cloudflare_plugin_is_refused() {
   run FINDO_HTTPS=public FINDO_HOST=findo.example.com FINDO_DNS_TOKEN=abc STUB_NO_CF=1
   ran_bad
@@ -356,6 +398,7 @@ for fn in no_https_without_a_terminal_keeps_findo_local \
   a_public_rerun_refreshes_caddy_and_keeps_the_token \
   changing_the_host_name_needs_a_deliberate_yes \
   a_caddyfile_caddy_rejects_stops_the_install \
+  a_rejected_token_is_not_echoed_back \
   a_caddy_without_the_cloudflare_plugin_is_refused \
   the_first_administrator_is_only_offered_when_there_are_no_accounts \
   widening_http_addr_is_called_out \
