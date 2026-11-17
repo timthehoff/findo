@@ -6,7 +6,7 @@ require (
 	github.com/go-webauthn/webauthn v0.18.2
 	github.com/golang/snappy v1.0.0
 	github.com/hirochachacha/go-smb2 v1.1.0
-	github.com/jackc/pgx/v5 v5.12.0
+	github.com/jackc/pgx/v5 v5.13.0
 	github.com/klippa-app/go-pdfium v1.21.4
 	github.com/tetratelabs/wazero v1.12.0
 	google.golang.org/protobuf v1.36.12
