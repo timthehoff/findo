@@ -450,6 +450,11 @@ volumeForm.addEventListener('submit', async (ev) => {
     return;
   }
 
+  // One save at a time: a second click or Enter while the first is in flight
+  // would send the request twice.
+  const saveBtn = volumeForm.querySelector('button[type="submit"]');
+  if (saveBtn.disabled) return;
+  saveBtn.disabled = true;
   try {
     if (id) {
       await putJSON(`/volumes/${id}`, input);
@@ -460,6 +465,8 @@ volumeForm.addEventListener('submit', async (ev) => {
     testResult.textContent = e.message;
     testResult.className = 'bad';
     return;
+  } finally {
+    saveBtn.disabled = false;
   }
   volumeDialog.close();
   toast(id ? 'Volume updated.' : 'Volume added — fetching its files now.', 'success');
