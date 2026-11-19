@@ -54,7 +54,7 @@ run is recorded with why it started (`manual`/`startup`/`periodic`/
 `resync`), duration, and files/bytes seen or removed
 (`GET /volumes/{id}/crawl-runs`), and each volume's change-notify listener
 reports its own connected/last-event/resync-count state. The web UI is
-seven pages — `index.html`, the landing page (live search, breadcrumb
+eight pages — `index.html`, the landing page (live search, breadcrumb
 directory browsing, copy-path and download actions; dotfiles — and anything under a dot-directory — are
 hidden unless `hidden=1` ("Show hidden" toggle; filtered in SQL by
 `Index.Search`/`List` so counts and limits stay right); search text, volume
@@ -66,8 +66,9 @@ breakdown), and `text.html` (a file's extracted text, opened from a search
 hit), plus the account pages `login.html` (one "Sign in with a passkey"
 button; explains the CLI command when no accounts exist), `enroll.html` (served
 at `/enroll`, the address in enrollment links: it reads the token from the URL
-fragment), `account.html` (passkeys, signed-in devices, sign out) and
-`users.html` (administrators: add, disable, delete, sign-in links) — with an icon-only light/dark/system theme toggle, a clickable
+fragment), `join.html` (served at `/join`, the address in invite links: the
+person chooses a username and a passkey), `account.html` (passkeys, signed-in devices, sign out) and
+`users.html` (administrators: add, disable, delete, sign-in links, invite links) — with an icon-only light/dark/system theme toggle, a clickable
 logo back to `/`, a `favicon.svg` (the brand 🐾 emoji, linked from every
 page; an SVG, so iOS home-screen pins still need a PNG `apple-touch-icon`
 later), and toast notifications for action feedback. (`/search` and
@@ -343,6 +344,23 @@ comment for the `curl` command that registers it as a volume).
   `index.VolumeAAD(id, owner)` as GCM additional data (`httpapi/volumeseal.go`),
   so a ciphertext copied to another volume or owner won't open; an ownerless
   legacy volume uses none until adopted, and reassigning an owner reseals.
+  **Self-serve accounts are by invite only** (`httpapi/invites.go`,
+  `index/invites.go`, migration 0006): an admin makes an invite (expiry 1 hour to
+  30 days, 1 to 100 uses, a label; a `fresh` route; only the token's SHA-256 is
+  stored; link `<public url>/join#<token>`), and whoever opens it chooses a
+  username and a passkey and gets an ordinary `user` account, never an admin.
+  There is deliberately no open sign-up: the per-user limits (connection budget,
+  etc.) assume accounts are scarce, and there is no email to verify. The passkey's
+  user handle is the user's id and is fixed at registration, but the account must
+  not exist until the passkey verifies, so `join/begin` takes an id from the
+  sequence (`Index.ReserveUserID`) and `CompleteInvite` inserts the user with it
+  (`OVERRIDING SYSTEM VALUE`), spends one use (a row-locked `UPDATE … WHERE uses <
+  max_uses`) and stores the credential in one transaction: a taken name, a
+  duplicate passkey or a verification failure spends nothing and leaves no user.
+  Invalid links and taken names both feed the per-address limiter (the latter so a
+  link holder can't enumerate usernames). `users.invite_id` records where an
+  account came from (the Users page shows it), revoking only stops future joins,
+  and invites that ended over 30 days ago are pruned when a new one is made.
   Volume names are unique per owner. Deleting a user deletes their volumes first
   (the foreign key is deliberately not cascading). **Admin isolation is not a
   security boundary**: an admin can give themselves any volume

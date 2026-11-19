@@ -13,6 +13,7 @@ const (
 	KindEnroll   = "enroll"   // registering via an enrollment link
 	KindRegister = "register" // a signed-in user adding a passkey
 	KindReauth   = "reauth"   // a signed-in user confirming with a passkey
+	KindJoin     = "join"     // making a new account with an invite link
 )
 
 // ChallengeTTL is how long a begun ceremony stays valid.
@@ -34,7 +35,9 @@ type Challenge struct {
 	Session      webauthn.SessionData
 	UserID       int64  // KindRegister, KindReauth: who it's for
 	EnrollmentID int64  // KindEnroll
-	Label        string // the passkey's name, for the two registration kinds
+	InviteID     int64  // KindJoin: the invite being used
+	Username     string // KindJoin: the name chosen for the account that doesn't exist yet
+	Label        string // the passkey's name, for the registration kinds
 	owner        string
 	expires      time.Time
 }

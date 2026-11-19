@@ -67,11 +67,28 @@ cd ~/Library/Application\ Support/Findo
 
 It prints a one-time link (valid 15 minutes) that registers that person's first
 passkey. Volumes that were configured before accounts existed go to this first
-admin. Add more people with `user add <name>` (or on the Users page), and give
-someone a fresh link, for a new device or after losing every passkey, with
-`findo-server user enroll <name>`. Register a passkey on each device or password
-manager you use, so losing one doesn't lock you out; the Account page can add
-more once you're signed in.
+admin. Register a passkey on each device or password manager you use, so losing
+one doesn't lock you out; the Account page can add more once you're signed in.
+
+**Adding people.** Nobody needs the command line after the first administrator.
+On the **Users** page an administrator can either:
+
+- **Add a user** by name, which gives a one-time sign-in link for that account (it
+  works once and lasts 15 minutes), or
+- **Create an invite link**, which lets people make their own accounts. You choose
+  how long it lasts (1, 7 or 30 days) and how many people can use it (up to 100),
+  and whoever opens it picks their own name and registers a passkey. Accounts made
+  this way are always ordinary users, and each one is tagged on the Users page
+  with the invite it came from, so if a link was shared too widely it's easy to
+  find those accounts and disable them. You can revoke a link at any time;
+  accounts already made from it stay. Creating one asks you to confirm with a
+  passkey, like other changes to who can get in.
+
+There's no open sign-up page: without an email address there's nothing to verify,
+and every account can make Findo connect out and store an index, so each one
+should come from a link you chose to hand out. Someone who has lost every passkey
+gets a fresh link from an administrator (the Users page, or
+`findo-server user enroll <name>`).
 
 **What this protects, and what it doesn't.** It keeps users apart, and keeps
 strangers on your network out. It does not hide anything from whoever runs the

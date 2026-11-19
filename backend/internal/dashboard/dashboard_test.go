@@ -12,7 +12,7 @@ func TestEveryPageLinksTheServedFavicon(t *testing.T) {
 	srv := httptest.NewServer(Handler())
 	defer srv.Close()
 
-	for _, page := range []string{"index.html", "volumes.html", "text.html", "login.html", "enroll.html", "account.html", "users.html"} {
+	for _, page := range []string{"index.html", "volumes.html", "text.html", "login.html", "enroll.html", "join.html", "account.html", "users.html"} {
 		body := get(t, srv.URL+"/"+page)
 		if !strings.Contains(body.text, `<link rel="icon" href="/favicon.svg" type="image/svg+xml">`) {
 			t.Errorf("%s has no favicon link", page)
@@ -65,7 +65,7 @@ func TestPagesLoadOnlyFilesThatExist(t *testing.T) {
 	srv := httptest.NewServer(Handler())
 	defer srv.Close()
 
-	for _, page := range []string{"index.html", "volumes.html", "text.html", "login.html", "enroll.html", "account.html", "users.html"} {
+	for _, page := range []string{"index.html", "volumes.html", "text.html", "login.html", "enroll.html", "join.html", "account.html", "users.html"} {
 		body := get(t, srv.URL+"/"+page)
 		if body.status != http.StatusOK {
 			t.Errorf("%s = %d", page, body.status)
@@ -94,7 +94,7 @@ func TestPagesLoadOnlyFilesThatExist(t *testing.T) {
 func TestSignedOutPagesDoNotNeedASession(t *testing.T) {
 	srv := httptest.NewServer(Handler())
 	defer srv.Close()
-	for _, js := range []string{"login.js", "enroll.js"} {
+	for _, js := range []string{"login.js", "enroll.js", "join.js"} {
 		if strings.Contains(get(t, srv.URL+"/js/"+js).text, "user.js") {
 			t.Errorf("%s imports user.js, which needs a session", js)
 		}
