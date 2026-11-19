@@ -206,6 +206,29 @@ func TestContentPassCutsOffAStalledRead(t *testing.T) {
 	}
 }
 
+func TestContentPassSurvivesAWedgedConnection(t *testing.T) {
+	srv, smb, volID := newTestServer(t)
+	srv.contentTimeout = 50 * time.Millisecond
+	smb.setContent("wedged.txt", []byte("never read"), 1)
+	smb.setContent("fine.txt", []byte("readable"), 1)
+	smb.wedgeOpen = map[string]bool{"wedged.txt": true}
+	optIn(t, srv, volID)
+
+	done := make(chan bool, 1)
+	go func() { done <- srv.contentPass(context.Background()) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the pass hung on a connection whose Close never returns")
+	}
+	if st, ok := contentStateOf(t, srv, volID, "wedged.txt"); !ok || st.status != "failed" {
+		t.Fatalf("wedged.txt = %+v (recorded=%v), want failed", st, ok)
+	}
+	if st, ok := contentStateOf(t, srv, volID, "fine.txt"); !ok || st.status != "done" {
+		t.Fatalf("fine.txt = %+v", st)
+	}
+}
+
 func TestContentPassWithSeveralWorkers(t *testing.T) {
 	srv, smb, volID := newTestServer(t)
 	for i := 0; i < 30; i++ {
