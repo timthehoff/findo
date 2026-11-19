@@ -42,6 +42,14 @@ export async function enroll(token, label) {
   return { ...done, username: begin.username };
 }
 
+// join makes a new account from an invite link's token: the person's chosen
+// name and a first passkey. It signs them in.
+export async function join(token, username, label) {
+  const begin = await postJSON('/auth/invite/begin', { token, username, label });
+  const cred = await create(begin.options);
+  return finish('/auth/invite/finish', begin.challengeId, cred);
+}
+
 // addPasskey registers another passkey for the signed-in user.
 export async function addPasskey(label) {
   const begin = await postJSON('/auth/passkey/register/begin', { label });

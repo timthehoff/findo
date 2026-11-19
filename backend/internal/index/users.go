@@ -105,11 +105,13 @@ func (idx *Index) GetUserByName(name string) (User, bool, error) {
 	return u, err == nil, err
 }
 
-// UserSummary is a user with the counts the admin Users page shows.
+// UserSummary is a user with the counts the admin Users page shows, and the
+// label of the invite they joined by, if any ("(no label)" for an unlabeled one).
 type UserSummary struct {
 	User
-	Passkeys int `json:"passkeys"`
-	Volumes  int `json:"volumes"`
+	Passkeys    int    `json:"passkeys"`
+	Volumes     int    `json:"volumes"`
+	InviteLabel string `json:"inviteLabel,omitempty"`
 }
 
 // ListUsers returns every user, oldest first.
@@ -117,8 +119,9 @@ func (idx *Index) ListUsers() ([]UserSummary, error) {
 	rows, err := idx.db.Query(`
 		SELECT u.id, u.username, u.role, u.disabled, u.created_at, u.last_login_at,
 		       (SELECT count(*) FROM credentials c WHERE c.user_id = u.id),
-		       (SELECT count(*) FROM volumes v WHERE v.owner_id = u.id)
-		FROM users u ORDER BY u.id`)
+		       (SELECT count(*) FROM volumes v WHERE v.owner_id = u.id),
+		       CASE WHEN i.id IS NULL THEN '' WHEN i.label = '' THEN '(no label)' ELSE i.label END
+		FROM users u LEFT JOIN invites i ON i.id = u.invite_id ORDER BY u.id`)
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +131,7 @@ func (idx *Index) ListUsers() ([]UserSummary, error) {
 		var s UserSummary
 		var created time.Time
 		var last sql.NullTime
-		if err := rows.Scan(&s.ID, &s.Username, &s.Role, &s.Disabled, &created, &last, &s.Passkeys, &s.Volumes); err != nil {
+		if err := rows.Scan(&s.ID, &s.Username, &s.Role, &s.Disabled, &created, &last, &s.Passkeys, &s.Volumes, &s.InviteLabel); err != nil {
 			return nil, err
 		}
 		s.CreatedAt = formatTime(created)

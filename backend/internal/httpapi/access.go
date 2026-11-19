@@ -96,6 +96,8 @@ func (s *Server) routeSpecs() []routeSpec {
 		h("POST /auth/passkey/login/finish", accessPublic, s.handleLoginFinish),
 		h("POST /auth/enroll/begin", accessPublic, s.handleEnrollBegin),
 		h("POST /auth/enroll/finish", accessPublic, s.handleEnrollFinish),
+		h("POST /auth/invite/begin", accessPublic, s.handleJoinBegin),
+		h("POST /auth/invite/finish", accessPublic, s.handleJoinFinish),
 
 		h("GET /auth/me", accessUser, s.handleMe),
 		h("POST /auth/logout", accessUser, s.handleLogout),
@@ -110,6 +112,9 @@ func (s *Server) routeSpecs() []routeSpec {
 		h("DELETE /auth/sessions/{id}", accessUser, s.handleDeleteSession),
 
 		h("GET /users", accessAdmin, s.handleListUsers),
+		h("GET /invites", accessAdmin, s.handleListInvites),
+		f("POST /invites", accessAdmin, s.handleCreateInvite),
+		h("DELETE /invites/{id}", accessAdmin, s.handleRevokeInvite),
 		f("POST /users", accessAdmin, s.handleCreateUser),
 		f("PUT /users/{id}", accessAdmin, s.handleUpdateUser),
 		f("DELETE /users/{id}", accessAdmin, s.handleDeleteUser),
@@ -153,6 +158,8 @@ func (s *Server) routeSpecs() []routeSpec {
 		// home-screen pins working now that it's the landing page.
 		// The page an enrollment link (<public url>/enroll#<token>) opens.
 		h("GET /enroll", accessPublic, dashboard.Page("enroll.html").ServeHTTP),
+		// The page an invite link (<public url>/join#<token>) opens.
+		h("GET /join", accessPublic, dashboard.Page("join.html").ServeHTTP),
 		h("GET /search.html", accessPublic, http.RedirectHandler("/", http.StatusMovedPermanently).ServeHTTP),
 		h("GET /", accessPublic, dashboard.Handler().ServeHTTP),
 	}

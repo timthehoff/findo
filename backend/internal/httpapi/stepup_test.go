@@ -20,6 +20,7 @@ import (
 var wantFresh = []string{
 	"POST /auth/passkey/register/begin",
 	"DELETE /auth/passkeys/{id}",
+	"POST /invites",
 	"POST /users",
 	"PUT /users/{id}",
 	"DELETE /users/{id}",

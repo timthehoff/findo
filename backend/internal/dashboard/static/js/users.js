@@ -19,6 +19,7 @@ initUser().then(u => {
     return;
   }
   load();
+  loadInvites();
 });
 
 async function load() {
@@ -37,6 +38,7 @@ function row(u) {
     u.disabled ? '<span class="badge bad">disabled</span>' : '',
     u.passkeys === 0 ? '<span class="badge bad" title="Hasn\'t registered a passkey yet; give them a sign-in link">no passkey yet</span>' : '',
     self ? '<span class="badge ok">you</span>' : '',
+    u.inviteLabel ? `<span class="badge neutral" title="Made their own account with this invite link">invite: ${escapeHTML(u.inviteLabel)}</span>` : '',
   ].join(' ');
   const attrs = `data-id="${u.id}" data-name="${escapeHTML(u.username)}"`;
   return `
@@ -58,9 +60,12 @@ function row(u) {
 const linkDialog = document.getElementById('linkDialog');
 const linkBox = document.getElementById('linkBox');
 
-function showLink(title, text, link) {
+const SIGN_IN_NOTE = 'It works once and expires in 15 minutes. Anyone with it can register a passkey for this account, so send it privately.';
+
+function showLink(title, text, link, note = SIGN_IN_NOTE) {
   document.getElementById('linkTitle').textContent = title;
   document.getElementById('linkText').textContent = text;
+  document.getElementById('linkNote').textContent = note;
   linkBox.textContent = link;
   linkDialog.showModal();
 }
@@ -134,6 +139,71 @@ document.getElementById('userForm').addEventListener('submit', async (ev) => {
     userDialog.close();
     showLink(`Welcome, ${out.user.username}`, 'Open this on their device to register a passkey.', out.enrollmentLink);
     load();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+});
+
+// ---- invite links ----
+const invitesEl = document.getElementById('invites');
+
+async function loadInvites() {
+  try {
+    const { invites } = await getJSON('/invites');
+    invitesEl.innerHTML = invites.length ? invites.map(inviteRow).join('') : '<li class="muted">No invite links yet.</li>';
+  } catch (e) {
+    invitesEl.innerHTML = `<li class="bad">Could not load invite links: ${escapeHTML(e.message)}</li>`;
+  }
+}
+
+function inviteRow(v) {
+  const active = v.status === 'active';
+  const badge = `<span class="badge ${active ? 'ok' : 'neutral'}">${escapeHTML(v.status)}</span>`;
+  return `
+    <li>
+      <div class="main">
+        <span class="title">${v.label ? escapeHTML(v.label) : '<span class="muted">(no label)</span>'}</span> ${badge}
+        <div class="sub">${v.uses} of ${v.maxUses} used &middot; ${active ? 'expires ' : 'expired '}${new Date(v.expiresAt).toLocaleDateString()}${v.createdBy ? ' &middot; made by ' + escapeHTML(v.createdBy) : ''}</div>
+      </div>
+      <div class="actions">
+        ${active ? `<button class="small danger" data-revoke="${v.id}">Revoke</button>` : ''}
+      </div>
+    </li>`;
+}
+
+invitesEl.addEventListener('click', async (ev) => {
+  const btn = ev.target.closest('button[data-revoke]');
+  if (!btn) return;
+  if (!confirm('Revoke this invite link? Accounts already made from it stay.')) return;
+  try {
+    await deleteJSON(`/invites/${btn.dataset.revoke}`);
+    toast('Invite link revoked.', 'success');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+  loadInvites();
+});
+
+const inviteDialog = document.getElementById('inviteDialog');
+document.getElementById('addInviteBtn').addEventListener('click', () => {
+  document.getElementById('inviteForm').reset();
+  inviteDialog.showModal();
+});
+document.getElementById('inviteCancel').addEventListener('click', () => inviteDialog.close());
+document.getElementById('inviteForm').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const body = {
+    label: document.getElementById('iLabel').value.trim(),
+    expiresInHours: Number(document.getElementById('iHours').value),
+    maxUses: Number(document.getElementById('iUses').value),
+  };
+  try {
+    const out = await withConfirm(() => postJSON('/invites', body));
+    inviteDialog.close();
+    const days = Math.round(body.expiresInHours / 24);
+    showLink('Invite link', 'Send this to the people you want to invite. They choose their own name.', out.link,
+      `Up to ${body.maxUses} ${body.maxUses === 1 ? 'person' : 'people'} can use it in the next ${days} ${days === 1 ? 'day' : 'days'}, and anyone who has it can, so send it privately. You can revoke it here at any time.`);
+    loadInvites();
   } catch (e) {
     toast(e.message, 'error');
   }
