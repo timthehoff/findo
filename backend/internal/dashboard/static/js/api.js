@@ -16,6 +16,9 @@ export class ApiError extends Error {
   }
 }
 
+// Longer than the slowest legitimate call (a failed connection test is padded to 8 s).
+const REQUEST_TIMEOUT_MS = 30000;
+
 const OPEN_PAGES = ['/login.html', '/enroll'];
 
 function signInAddress() {
@@ -32,7 +35,18 @@ async function request(method, url, body) {
     opts.body = JSON.stringify(body);
   }
 
-  const res = await fetch(url, opts);
+  // A request that never answers (a stalled connection) must end in an error
+  // the person can see and retry, not a page that waits forever.
+  opts.signal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(url, opts);
+  } catch (e) {
+    if (e && e.name === 'TimeoutError') {
+      throw new ApiError('The server did not answer in time. Try again.', 0, null);
+    }
+    throw e;
+  }
   let data = null;
   try {
     data = await res.json();

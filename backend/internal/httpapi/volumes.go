@@ -245,13 +245,17 @@ func (s *Server) handleUpdateVolume(w http.ResponseWriter, r *http.Request) {
 		s.kickContent()
 	}
 
-	// Connection details (or enabled state) may have changed — restart the
-	// runtime unconditionally rather than trying to detect exactly what
-	// changed; reconnecting on a pure rename is a cheap no-op to get wrong
-	// safely.
-	s.stopVolume(id)
-	if vol.Enabled {
-		s.startVolumeAsync(vol)
+	// Restart the runtime only when something about the connection changed (or
+	// it isn't running though it should be, so re-saving retries a failed
+	// start). Every restart closes the SMB session under any crawl or content
+	// pass in flight, so a rename or a content-index toggle must not do it.
+	connChanged := in.Password != "" || vol.Host != existing.Host || vol.Share != existing.Share ||
+		vol.Username != existing.Username || vol.Enabled != existing.Enabled
+	if connChanged || (vol.Enabled && s.volumeRuntime(id) == nil) {
+		s.stopVolume(id)
+		if vol.Enabled {
+			s.startVolumeAsync(vol)
+		}
 	}
 
 	writeJSON(w, http.StatusOK, s.enrichVolume(vol))

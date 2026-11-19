@@ -14,6 +14,7 @@ import (
 
 	"github.com/thoff/findo/backend/internal/extract"
 	"github.com/thoff/findo/backend/internal/index"
+	"github.com/thoff/findo/backend/internal/smbclient"
 )
 
 const (
@@ -172,23 +173,37 @@ func (s *Server) recordContent(err error, f index.PendingFile) bool {
 	return false
 }
 
-// extractFile reads and extracts one file, giving up after s.contentTimeout.
-// Extractors run on malformed input from a network share, so a panic is
-// caught and a stalled read is cut off by closing the file.
+// extractFile opens, reads and extracts one file, giving up after
+// s.contentTimeout. Extractors run on malformed input from a network share, so
+// a panic is caught. Nothing here may block the caller past the deadline: the
+// SMB library's calls ignore our context and serialize on a per-connection
+// lock, so after the volume's session is replaced under us an Open, a read or
+// even a Close can hang forever (this once froze the whole indexer for days).
+// The work therefore runs in its own goroutine, and Close is only ever called
+// from goroutines nobody waits for.
 func (s *Server) extractFile(ctx context.Context, rt *volumeRuntime, cs index.ContentSettings, f index.PendingFile) (string, error) {
-	file, _, err := rt.smb.Open(f.Path)
-	if err != nil {
-		return "", err
-	}
-
 	type result struct {
 		text string
 		err  error
 	}
-	// One deadline for the whole file: it interrupts a stuck PDF engine through
-	// ctx, and the select below closes the file for readers that only stall on I/O.
+	// One deadline for the whole file: it interrupts a stuck PDF engine through ctx.
 	ctx, cancel := context.WithTimeout(ctx, s.contentTimeout)
 	defer cancel()
+
+	var (
+		mu        sync.Mutex
+		file      smbclient.File
+		abandoned bool
+	)
+	closeFile := func() {
+		mu.Lock()
+		fl := file
+		abandoned = true
+		mu.Unlock()
+		if fl != nil {
+			go fl.Close() // may block on a dead connection's lock; nobody waits for it
+		}
+	}
 
 	done := make(chan result, 1)
 	go func() {
@@ -197,30 +212,33 @@ func (s *Server) extractFile(ctx context.Context, rt *volumeRuntime, cs index.Co
 				done <- result{err: fmt.Errorf("extractor panic: %v", r)}
 			}
 		}()
-		text, err := extract.Extract(ctx, strings.ToLower(f.Ext), file, f.Size, cs.MaxTextBytes)
+		fl, _, err := rt.smb.Open(f.Path)
+		if err != nil {
+			done <- result{err: err}
+			return
+		}
+		mu.Lock()
+		if abandoned {
+			mu.Unlock()
+			go fl.Close()
+			return
+		}
+		file = fl
+		mu.Unlock()
+		text, err := extract.Extract(ctx, strings.ToLower(f.Ext), fl, f.Size, cs.MaxTextBytes)
 		done <- result{text, err}
 	}()
 
 	select {
 	case r := <-done:
-		file.Close()
+		closeFile()
 		return r.text, r.err
 	case <-ctx.Done():
-		file.Close()
-		waitBriefly(done)
+		closeFile() // unblocks readers that only stall on I/O
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return "", errors.New("timed out reading the file")
 		}
 		return "", ctx.Err()
-	}
-}
-
-// waitBriefly lets a closed file's reader goroutine return, without risking a
-// hang if it never does.
-func waitBriefly[T any](ch <-chan T) {
-	select {
-	case <-ch:
-	case <-time.After(5 * time.Second):
 	}
 }
 

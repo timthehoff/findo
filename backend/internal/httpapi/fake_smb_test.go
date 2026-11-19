@@ -34,6 +34,9 @@ type fakeSMB struct {
 	contents  map[string][]byte
 	openErr   map[string]error
 	blockOpen map[string]bool
+	// wedgeOpen makes Open, reads and Close all hang for good, like go-smb2
+	// on a replaced session (their lock is never released).
+	wedgeOpen map[string]bool
 }
 
 func newFakeSMB() *fakeSMB {
@@ -89,6 +92,9 @@ func (f *fakeSMB) Open(path string) (smbclient.File, os.FileInfo, error) {
 		return nil, nil, os.ErrNotExist
 	}
 	info := fakeInfo{name: baseName(path), size: int64(len(data))}
+	if f.wedgeOpen[path] {
+		return &wedgedFile{}, info, nil
+	}
 	if f.blockOpen[path] {
 		return &blockingFile{release: make(chan struct{})}, info, nil
 	}
@@ -119,6 +125,14 @@ func (b *blockingFile) Close() error {
 	b.once.Do(func() { close(b.release) })
 	return nil
 }
+
+// wedgedFile blocks every call forever, Close included.
+type wedgedFile struct{}
+
+func (wedgedFile) Read([]byte) (int, error)          { select {} }
+func (wedgedFile) ReadAt([]byte, int64) (int, error) { select {} }
+func (wedgedFile) Seek(int64, int) (int64, error)    { return 0, nil }
+func (wedgedFile) Close() error                      { select {} }
 
 type fakeInfo struct {
 	name string

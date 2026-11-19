@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"github.com/thoff/findo/backend/internal/testdb"
 	"net/http/httptest"
 	"strconv"
@@ -69,6 +70,41 @@ func TestCreateVolumeStartsItAndOmitsPassword(t *testing.T) {
 	waitFor(t, func() bool {
 		return srv.volumeRuntime(created.ID) != nil
 	})
+}
+
+func TestUpdateVolumeRestartsOnlyWhenTheConnectionChanges(t *testing.T) {
+	srv := newTestServerNoVolumes(t, newFakeSMB())
+	rec := doJSON(t, srv, "POST", "/volumes", map[string]string{
+		"name": "Home NAS", "host": "nas.local", "share": "media", "username": "findo", "password": "s3cret",
+	})
+	var created volumeStatus
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil || rec.Code != 201 {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body)
+	}
+	waitFor(t, func() bool { return srv.volumeRuntime(created.ID) != nil })
+	before := srv.volumeRuntime(created.ID)
+
+	put := func(body map[string]interface{}) {
+		t.Helper()
+		body["host"], body["share"], body["username"] = "nas.local", "media", "findo"
+		if rec := doJSON(t, srv, "PUT", fmt.Sprintf("/volumes/%d", created.ID), body); rec.Code != 200 {
+			t.Fatalf("PUT %v = %d %s", body, rec.Code, rec.Body)
+		}
+	}
+
+	put(map[string]interface{}{"name": "Renamed"})
+	put(map[string]interface{}{"name": "Renamed", "contentIndex": true})
+	if srv.volumeRuntime(created.ID) != before {
+		t.Fatal("a rename or content-index toggle must keep the running session")
+	}
+
+	put(map[string]interface{}{"name": "Renamed", "password": "new-secret"})
+	waitFor(t, func() bool { rt := srv.volumeRuntime(created.ID); return rt != nil && rt != before })
+
+	// A volume that failed to start is retried by saving it again.
+	srv.stopVolume(created.ID)
+	put(map[string]interface{}{"name": "Renamed"})
+	waitFor(t, func() bool { return srv.volumeRuntime(created.ID) != nil })
 }
 
 func TestCreateVolumeRejectsMissingFields(t *testing.T) {
